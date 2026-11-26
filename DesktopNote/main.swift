@@ -3,6 +3,7 @@
 
 import Cocoa
 import UniformTypeIdentifiers
+import UserNotifications
 
 let lifeDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/life")
 let storeURL = lifeDir.appendingPathComponent("stickers.json")
@@ -71,6 +72,7 @@ struct StickerData: Codable {
     var text: String = ""
     var x: Double, y: Double, w: Double, h: Double
     var color: Int = 0
+    var remindAt: Double? = nil      // reminder time (seconds since 1970), nil = no reminder
     var frame: NSRect {
         get { NSRect(x: x, y: y, width: w, height: h) }
         set { x = newValue.minX; y = newValue.minY; w = newValue.width; h = newValue.height }
@@ -80,9 +82,11 @@ struct StickerData: Codable {
 // MARK: - Window that can take keyboard focus even without a title bar
 
 final class StickerWindow: NSWindow {
+    var onMouseDown: (() -> Void)?
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown { onMouseDown?() }
         if event.type == .leftMouseDown && !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
         super.sendEvent(event)
     }
@@ -145,9 +149,114 @@ final class StickerTextView: NSTextView {
     }
 }
 
+// MARK: - Reminder picker (opens from the bell button)
+
+let reminderFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateStyle = .medium
+    f.timeStyle = .short
+    f.doesRelativeDateFormatting = true    // "Today, 15:00" / "Tomorrow, 09:00"
+    return f
+}()
+
+final class ReminderPicker: NSViewController {
+    var onSet: ((Date) -> Void)?
+    var onClear: (() -> Void)?
+    private let initial: Date
+    private let hasReminder: Bool
+    private let cal = NSDatePicker()
+    private let time = NSDatePicker()
+    private let msg = NSTextField(labelWithString: "")
+
+    init(date: Date, hasReminder: Bool) {
+        initial = date
+        self.hasReminder = hasReminder
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func quick(_ title: String, _ tag: Int) -> NSButton {
+        let b = NSButton(title: title, target: self, action: #selector(quickTapped(_:)))
+        b.controlSize = .small
+        b.bezelStyle = .rounded
+        b.tag = tag
+        return b
+    }
+
+    override func loadView() {
+        let title = NSTextField(labelWithString: "Remind me on")
+        title.font = .boldSystemFont(ofSize: 13)
+
+        cal.datePickerStyle = .clockAndCalendar
+        cal.datePickerElements = .yearMonthDay
+        cal.dateValue = initial
+        cal.minDate = Calendar.current.startOfDay(for: Date())
+
+        time.datePickerStyle = .textFieldAndStepper
+        time.datePickerElements = .hourMinute
+        time.dateValue = initial
+        let timeRow = NSStackView(views: [NSTextField(labelWithString: "at"), time])
+
+        var quickButtons = [quick("In 1 hour", 0)]
+        if Calendar.current.component(.hour, from: Date()) < 20 { quickButtons.append(quick("Tonight 8 pm", 1)) }
+        quickButtons.append(quick("Tomorrow 9 am", 2))
+        let quickRow = NSStackView(views: quickButtons)
+        quickRow.spacing = 6
+
+        msg.textColor = .systemRed
+        msg.font = .systemFont(ofSize: 11)
+        msg.isHidden = true
+
+        let set = NSButton(title: "Set reminder", target: self, action: #selector(setTapped))
+        set.keyEquivalent = "\r"
+        var bottom: [NSView] = []
+        if hasReminder { bottom.append(NSButton(title: "Remove", target: self, action: #selector(clearTapped))) }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        bottom += [spacer, set]
+        let bottomRow = NSStackView(views: bottom)
+
+        let stack = NSStackView(views: [title, cal, timeRow, quickRow, msg, bottomRow])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        bottomRow.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28).isActive = true
+        view = stack
+    }
+
+    @objc func quickTapped(_ b: NSButton) {
+        let c = Calendar.current, now = Date()
+        let d: Date
+        switch b.tag {
+        case 0: d = now.addingTimeInterval(3600)
+        case 1: d = c.date(bySettingHour: 20, minute: 0, second: 0, of: now)!
+        default: d = c.date(bySettingHour: 9, minute: 0, second: 0, of: c.date(byAdding: .day, value: 1, to: now)!)!
+        }
+        onSet?(d)
+    }
+
+    @objc func setTapped() {
+        let c = Calendar.current
+        var comps = c.dateComponents([.year, .month, .day], from: cal.dateValue)
+        let t = c.dateComponents([.hour, .minute], from: time.dateValue)
+        comps.hour = t.hour
+        comps.minute = t.minute
+        comps.second = 0
+        guard let d = c.date(from: comps), d > Date() else {
+            msg.stringValue = "That time has already passed — pick a later one."
+            msg.isHidden = false
+            return
+        }
+        onSet?(d)
+    }
+
+    @objc func clearTapped() { onClear?() }
+}
+
 // MARK: - One sticker
 
-final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
+final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDelegate {
     var data: StickerData
     let window: StickerWindow
     let paper = NSView()
@@ -157,6 +266,11 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
     var chrome: [NSView] = []        // top bar (+, drag pill, ×) and resize corner
     var chromeVisible = false
     var buttons: [NSButton] = []
+    var bell: NSButton!
+    let reminderLabel = NSTextField(labelWithString: "")
+    var popover: NSPopover?
+    var ringing = false
+    var soundTimer: Timer?
 
     init(_ data: StickerData, board: Board) {
         self.data = data
@@ -206,7 +320,8 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
 
         let add = iconButton("plus", "New sticker", #selector(newSticker))
         let delete = iconButton("xmark", "Delete sticker", #selector(deleteMe))
-        buttons = [add, delete]
+        bell = iconButton("bell", "Set a reminder", #selector(openReminder))
+        buttons = [add, bell, delete]
         buttons.forEach(bar.addSubview)
 
         let scroll = NSScrollView()
@@ -244,6 +359,13 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
         bar.onDrop = { [weak self] in self?.keepOnScreen() }
         paper.addSubview(grip)
 
+        // Shows the reminder time at the bottom (always visible when a reminder is set).
+        reminderLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        reminderLabel.lineBreakMode = .byTruncatingTail
+        reminderLabel.translatesAutoresizingMaskIntoConstraints = false
+        paper.addSubview(reminderLabel)
+        window.onMouseDown = { [weak self] in self?.stopRinging() }
+
         // Controls stay hidden until you click the sticker.
         chrome = [bar, grip]
         chrome.forEach { $0.isHidden = true }
@@ -256,6 +378,8 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
 
             add.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 14),
             add.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            bell.leadingAnchor.constraint(equalTo: add.trailingAnchor, constant: 12),
+            bell.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             delete.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -14),
             delete.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
 
@@ -268,6 +392,10 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
             grip.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -3),
             grip.widthAnchor.constraint(equalToConstant: 16),
             grip.heightAnchor.constraint(equalToConstant: 16),
+
+            reminderLabel.leadingAnchor.constraint(equalTo: paper.leadingAnchor, constant: 14),
+            reminderLabel.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -3),
+            reminderLabel.trailingAnchor.constraint(lessThanOrEqualTo: grip.leadingAnchor, constant: -4),
         ])
 
         applyTheme()
@@ -293,6 +421,7 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
         shadow.shadowOffset = NSSize(width: 0, height: -1)
         textView.shadow = shadow
         buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.5) }
+        updateReminderLabel()
         chrome.forEach { $0.needsDisplay = true }
         textView.needsDisplay = true
     }
@@ -325,6 +454,7 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
     func windowDidResignKey(_ n: Notification) { setChrome(false) }
 
     func setChrome(_ visible: Bool) {
+        if !visible, popover?.isShown == true { return }   // keep the bell visible while its picker is open
         chromeVisible = visible
         for v in chrome {
             if visible { v.isHidden = false }
@@ -345,6 +475,100 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate {
     }
 
     @objc func newSticker() { board.addSticker(near: window.frame) }
+
+    // MARK: Reminders
+
+    @objc func openReminder() {
+        if popover?.isShown == true { popover?.close(); return }
+        let start: Date = data.remindAt.map { Date(timeIntervalSince1970: $0) } ?? {
+            // default: the next full hour
+            let c = Calendar.current, next = Date().addingTimeInterval(3600)
+            return c.date(bySettingHour: c.component(.hour, from: next), minute: 0, second: 0, of: next)!
+        }()
+        let picker = ReminderPicker(date: start, hasReminder: data.remindAt != nil)
+        picker.onSet = { [weak self] d in self?.setReminder(d) }
+        picker.onClear = { [weak self] in self?.setReminder(nil) }
+        let p = NSPopover()
+        p.contentViewController = picker
+        p.behavior = .transient
+        p.delegate = self
+        popover = p
+        p.show(relativeTo: bell.bounds, of: bell, preferredEdge: .maxY)
+        board.askNotificationPermission()
+    }
+
+    func popoverDidClose(_ n: Notification) {
+        if !window.isKeyWindow { setChrome(false) }
+    }
+
+    func setReminder(_ date: Date?) {
+        popover?.close()
+        data.remindAt = date?.timeIntervalSince1970
+        updateReminderLabel()
+        board.save()
+    }
+
+    func updateReminderLabel() {
+        bell?.image = NSImage(systemSymbolName: data.remindAt == nil ? "bell" : "bell.fill",
+                              accessibilityDescription: "Reminder")
+        if ringing {
+            reminderLabel.stringValue = "⏰ Reminder! Click to dismiss"
+            reminderLabel.textColor = .systemOrange
+        } else if let t = data.remindAt {
+            reminderLabel.stringValue = "⏰ " + reminderFormatter.string(from: Date(timeIntervalSince1970: t))
+            reminderLabel.textColor = inkColor.withAlphaComponent(0.65)
+        } else {
+            reminderLabel.stringValue = ""
+        }
+    }
+
+    // Time's up: sound, notification, and the sticker jumps in front of everything and glows.
+    func ring() {
+        guard !ringing else { return }
+        ringing = true
+        data.remindAt = nil
+        board.save()
+        updateReminderLabel()
+
+        window.level = .floating
+        window.orderFrontRegardless()
+        let orange = NSColor.systemOrange
+        paper.layer?.borderWidth = 3
+        paper.layer?.borderColor = orange.cgColor
+        let pulse = CABasicAnimation(keyPath: "borderColor")
+        pulse.fromValue = orange.cgColor
+        pulse.toValue = orange.withAlphaComponent(0.15).cgColor
+        pulse.duration = 0.7
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        paper.layer?.add(pulse, forKey: "ring")
+        // Ring for 30 seconds (or until you click the sticker).
+        let started = Date()
+        NSSound(named: "Glass")?.play()
+        soundTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { t in
+            if Date().timeIntervalSince(started) >= 30 { t.invalidate(); return }
+            NSSound(named: "Glass")?.play()
+        }
+
+        let firstLine = data.text.split(separator: "\n").first.map(String.init) ?? ""
+        let content = UNMutableNotificationContent()
+        content.title = "Sticker reminder"
+        content.body = firstLine.isEmpty ? "You set a reminder on one of your stickers." : firstLine
+        content.userInfo = ["sticker": data.id]
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    func stopRinging() {
+        guard ringing else { return }
+        ringing = false
+        soundTimer?.invalidate()
+        soundTimer = nil
+        paper.layer?.removeAnimation(forKey: "ring")
+        window.level = stickerLevel
+        applyTheme()   // restores the normal border
+        if board.hidden { window.orderOut(nil) }
+    }
 
     @objc func deleteMe() {
         if !data.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -469,6 +693,31 @@ final class Board {
         save()
     }
 
+    // MARK: Reminders
+
+    private var askedPermission = false
+    func askNotificationPermission() {
+        guard !askedPermission else { return }
+        askedPermission = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    // Checks every 5 seconds, and right after the Mac wakes from sleep.
+    func startReminderClock() {
+        let t = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.checkReminders() }
+        t.tolerance = 1
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.checkReminders()
+        }
+        checkReminders()   // reminders that came due while the app was off ring right away
+    }
+
+    func checkReminders() {
+        let now = Date().timeIntervalSince1970
+        for s in stickers where (s.data.remindAt ?? .infinity) <= now { s.ring() }
+    }
+
     func scheduleSave() {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in self?.save() }
@@ -487,7 +736,7 @@ final class Board {
 
 // MARK: - App + menu bar icon
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let board = Board()
     var statusItem: NSStatusItem!
     var toggleItem: NSMenuItem!
@@ -521,6 +770,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         board.watchWallpaper()
         board.load()
         board.applyHidden()
+        UNUserNotificationCenter.current().delegate = self
+        board.startReminderClock()
     }
 
     func applicationWillTerminate(_ n: Notification) { board.save() }
@@ -568,6 +819,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func newSticker() { board.addSticker(near: nil) }
+
+    // Show notifications even though this app is running.
+    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,
+                                withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        done([.banner, .list])
+    }
+
+    // Clicking the notification brings that sticker forward.
+    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        let id = r.notification.request.content.userInfo["sticker"] as? String
+        DispatchQueue.main.async {
+            if let s = self.board.stickers.first(where: { $0.data.id == id }) {
+                NSApp.activate(ignoringOtherApps: true)
+                s.window.orderFrontRegardless()
+                s.window.makeKey()
+            }
+        }
+        done()
+    }
     @objc func toggleHidden() { board.hidden.toggle() }
 
     func refreshToggle() {

@@ -4,6 +4,7 @@
 
 # Built app (rebuild from DesktopNote/main.swift)
 DesktopNote/DesktopNote.app/Contents/MacOS/
+DesktopNote/DesktopNote.app/Contents/_CodeSignature/
 
 # Personal data: your sticker text, old note, and wallpaper copies
 stickers.json
