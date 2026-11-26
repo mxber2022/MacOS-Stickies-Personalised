@@ -12,9 +12,9 @@ It's a single Swift file with no dependencies. It uses about 20 MB of memory and
 - **Autosave.** Text, position and size are saved as you type, move or resize, and everything comes back after a restart.
 - **Frosted glass look.** The stickers are see-through, and the controls (drag bar, **+**, 🔔, **×**, resize corner) only appear when you click a sticker.
 - **Matches your wallpaper.** Light wallpapers get light stickers with dark text, and dark wallpapers get dark stickers with white text. This updates within about 3 seconds when you change the wallpaper. You can also force Light or Dark.
-- **Handwriting fonts.** Choose from Noteworthy, Bradley Hand, Chalkboard, Marker Felt, Snell Roundhand, or plain text.
+- **Handwriting fonts.** Noteworthy is the default. You can also choose Bradley Hand, Chalkboard, Marker Felt, Snell Roundhand, or plain text.
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
-- **Hide or show all stickers** with one click. The app remembers which you chose.
+- **Hide or show all stickers** with one click. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
 - **Stays on screen.** Stickers can't get lost under the menu bar or off the edge of the screen.
 
@@ -49,6 +49,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | Hide or show everything | Menu bar icon → **Hide all stickers** / **Show all stickers** |
 | Change wallpaper, sticker style or font | Menu bar icon → **Change wallpaper…** / **Sticker style** / **Font** |
 | Find a lost sticker | Menu bar icon → **Line up all stickers** |
+| Open the saved file or quit | Menu bar icon → **Show saved file in Finder** / **Quit Stickers** |
 
 ## Where your data lives
 
