@@ -643,6 +643,8 @@ let tweetsOnlyScript = """
     html.dn-on article [role="group"] { display: none !important; }          /* reply / repost / like / views / bookmark / share */
     html.dn-on article [aria-label*="Grok" i] { display: none !important; }
     html.dn-on article button[aria-label="More"] { display: none !important; }   /* the "…" menu */
+    html.dn-on article div:has(> [data-post-avatar]) { display: none !important; }   /* profile picture column */
+    html.dn-on article img[src*="profile_images"] { display: none !important; }
   `;
   document.documentElement.appendChild(style);
   let enabled = false, queued = false;
