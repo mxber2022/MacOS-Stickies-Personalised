@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+._*
+
+# Built app (rebuild from DesktopNote/main.swift)
+DesktopNote/DesktopNote.app/Contents/MacOS/
+
+# Personal data: your sticker text, old note, and wallpaper copies
+stickers.json
+notes.txt
+wallpapers/
