@@ -638,7 +638,12 @@ let tweetsOnlyScript = """
 (function () {
   if (window.__dnSet) return;
   const style = document.createElement('style');
-  style.textContent = `html.dn-on .dn-hide { display: none !important; }`;
+  style.textContent = `
+    html.dn-on .dn-hide { display: none !important; }
+    html.dn-on article [role="group"] { display: none !important; }          /* reply / repost / like / views / bookmark / share */
+    html.dn-on article [aria-label*="Grok" i] { display: none !important; }
+    html.dn-on article button[aria-label="More"] { display: none !important; }   /* the "…" menu */
+  `;
   document.documentElement.appendChild(style);
   let enabled = false, queued = false;
   const isProfile = () => /^\\/[A-Za-z0-9_]{1,15}\\/?$/.test(location.pathname);
@@ -665,6 +670,16 @@ let tweetsOnlyScript = """
     for (const child of list.children) {
       if (child.tagName !== 'ARTICLE' && !child.querySelector('article')) child.classList.add('dn-hide');
       else child.classList.remove('dn-hide');
+    }
+    // In each tweet's top row: hide the icon-only buttons (the "…" menu and the Grok icon).
+    for (const t of list.querySelectorAll('article')) {
+      const top = t.getBoundingClientRect().top;
+      for (const b of t.querySelectorAll('button, [role="button"]')) {
+        if (b.classList.contains('dn-hide') || b.innerText.trim() !== '') continue;
+        if (b.closest('[aria-label*="erified" i]') || b.getAttribute('aria-label')?.match(/verified/i)) continue;
+        const r = b.getBoundingClientRect();
+        if (r.width > 0 && r.top - top < 40) b.classList.add('dn-hide');
+      }
     }
     // Outside the list: hide everything beside it, all the way up to the page itself.
     let el = list;
@@ -751,10 +766,9 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
 
         let back = iconButton("chevron.left", "Back", #selector(goBack))
         let home = iconButton("arrow.clockwise", "Refresh / back to profile", #selector(goHome))
-        let open = iconButton("safari", "Open in browser", #selector(openInBrowser))
         let close = iconButton("xmark", "Remove this feed", #selector(removeMe))
         filterButton = iconButton("line.3.horizontal.decrease.circle", "Tweets only / full page", #selector(toggleTweetsOnly))
-        buttons = [back, filterButton, home, open, close]
+        buttons = [back, filterButton, home, close]
         buttons.forEach(bar.addSubview)
 
         titleLabel.stringValue = "@" + data.user
@@ -795,9 +809,7 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             titleLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             close.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
             close.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            open.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -10),
-            open.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            home.trailingAnchor.constraint(equalTo: open.leadingAnchor, constant: -10),
+            home.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -10),
             home.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
 
             web.topAnchor.constraint(equalTo: bar.bottomAnchor),
@@ -899,7 +911,6 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
 
     @objc func goBack() { if web.canGoBack { web.goBack() } else { goHome() } }
     @objc func goHome() { web.load(URLRequest(url: profileURL)) }
-    @objc func openInBrowser() { NSWorkspace.shared.open(web.url ?? profileURL) }
 
     @objc func removeMe() {
         NSApp.activate(ignoringOtherApps: true)

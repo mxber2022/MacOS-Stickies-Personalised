@@ -16,7 +16,7 @@ It's a single Swift file with no dependencies. It uses about 20 MB of memory and
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
 - **Hide or show all stickers** with one click. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
-- **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets and hides X's menus, profile header and suggestions. It refreshes every 5 minutes while you're not using it, and you stay logged in between restarts.
+- **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets: X's menus, profile header, suggestions, the Grok and **…** buttons, and the reply/repost/like row under each post are hidden. It refreshes every 5 minutes while you're not using it, and you stay logged in between restarts.
 - **Stays on screen.** Stickers can't get lost under the menu bar or off the edge of the screen.
 
 ## Requirements
@@ -50,7 +50,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | Hide or show everything | Menu bar icon → **Hide all stickers** / **Show all stickers** |
 | Change wallpaper, sticker style or font | Menu bar icon → **Change wallpaper…** / **Sticker style** / **Font** |
 | Show someone's X posts | Menu bar icon → **Add X feed…** → type their username. Log in to X inside the panel once. |
-| Use an X feed panel | Top bar: **‹** back, filter icon switches between **tweets only** (default) and the full page, **⟳** back to the profile and refresh, Safari icon opens it in your browser, **×** removes the feed. Switch to the full page to log in. |
+| Use an X feed panel | Top bar: **‹** back, filter icon switches between **tweets only** (default) and the full page, **⟳** back to the profile and refresh, **×** removes the feed. Switch to the full page to log in. |
 | Find a lost sticker | Menu bar icon → **Line up all stickers** |
 | Open the saved file or quit | Menu bar icon → **Show saved file in Finder** / **Quit Stickers** |
 
