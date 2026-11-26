@@ -690,6 +690,19 @@ let tweetsOnlyScript = """
       if (!hasTweet || isPinned(child)) child.classList.add('dn-hide');
       else child.classList.remove('dn-hide');
     }
+    // In this person's own tweets: hide their name, badge and @handle, keep only the time.
+    // (Reposts and quotes from other people keep their author's name.)
+    const me = '/' + location.pathname.split('/')[1].toLowerCase();
+    for (const head of list.querySelectorAll('[data-testid="User-Name"]')) {
+      const time = head.querySelector('time');
+      const own = [...head.querySelectorAll('a[href]')].some(a => a.getAttribute('href').toLowerCase() === me);
+      if (!time || !own) continue;
+      let el = time;
+      while (el && el !== head && el.parentElement) {
+        for (const sib of el.parentElement.children) if (sib !== el) sib.classList.add('dn-hide');
+        el = el.parentElement;
+      }
+    }
     // In each tweet's top row: hide the icon-only buttons (the "…" menu and the Grok icon).
     for (const t of list.querySelectorAll('article')) {
       const top = t.getBoundingClientRect().top;
