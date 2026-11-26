@@ -737,6 +737,7 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
     let window: StickerWindow
     let paper = NSView()
     let glass = NSVisualEffectView()
+    let barGlass = NSVisualEffectView()      // frosted background of the top bar (it floats over the tweets)
     let web: WKWebView
     let titleLabel = NSTextField(labelWithString: "")
     unowned let board: Board
@@ -794,7 +795,16 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         let bar = DragBar()
         bar.showsPill = false
         bar.translatesAutoresizingMaskIntoConstraints = false
-        paper.addSubview(bar)
+        barGlass.blendingMode = .withinWindow
+        barGlass.state = .active
+        barGlass.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(barGlass)
+        NSLayoutConstraint.activate([
+            barGlass.topAnchor.constraint(equalTo: bar.topAnchor),
+            barGlass.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+            barGlass.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            barGlass.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+        ])
 
         let back = iconButton("chevron.left", "Back", #selector(goBack))
         let home = iconButton("arrow.clockwise", "Refresh / back to profile", #selector(goHome))
@@ -812,11 +822,9 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         web.navigationDelegate = self
         web.uiDelegate = self
         web.pageZoom = 0.9
-        web.wantsLayer = true
-        web.layer?.cornerRadius = 6
-        web.layer?.masksToBounds = true
         web.translatesAutoresizingMaskIntoConstraints = false
         paper.addSubview(web)
+        paper.addSubview(bar, positioned: .above, relativeTo: web)   // bar floats over the top of the page
 
         let grip = ResizeGrip()
         grip.translatesAutoresizingMaskIntoConstraints = false
@@ -832,7 +840,7 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             bar.topAnchor.constraint(equalTo: paper.topAnchor),
             bar.leadingAnchor.constraint(equalTo: paper.leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: paper.trailingAnchor),
-            bar.heightAnchor.constraint(equalToConstant: 28),
+            bar.heightAnchor.constraint(equalToConstant: 34),
 
             back.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
             back.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
@@ -845,10 +853,11 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             home.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -10),
             home.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
 
-            web.topAnchor.constraint(equalTo: bar.bottomAnchor),
-            web.leadingAnchor.constraint(equalTo: paper.leadingAnchor, constant: 4),
-            web.trailingAnchor.constraint(equalTo: paper.trailingAnchor, constant: -4),
-            web.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -4),
+            // Tweets fill the whole panel; no empty strip when the bar is hidden.
+            web.topAnchor.constraint(equalTo: paper.topAnchor),
+            web.leadingAnchor.constraint(equalTo: paper.leadingAnchor),
+            web.trailingAnchor.constraint(equalTo: paper.trailingAnchor),
+            web.bottomAnchor.constraint(equalTo: paper.bottomAnchor),
 
             grip.trailingAnchor.constraint(equalTo: paper.trailingAnchor, constant: -3),
             grip.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -3),
@@ -875,6 +884,8 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         glass.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         glass.material = light ? .popover : .hudWindow
         glass.alphaValue = light ? 0.75 : 0.7
+        barGlass.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+        barGlass.material = light ? .popover : .hudWindow
         paper.layer?.borderWidth = 1
         paper.layer?.borderColor = (light ? NSColor.black.withAlphaComponent(0.10)
                                           : NSColor.white.withAlphaComponent(0.08)).cgColor
