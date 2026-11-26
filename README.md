@@ -50,7 +50,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | Hide or show everything | Menu bar icon → **Hide all stickers** / **Show all stickers** |
 | Change wallpaper, sticker style or font | Menu bar icon → **Change wallpaper…** / **Sticker style** / **Font** |
 | Show someone's X posts | Menu bar icon → **Add X feed…** → type their username. Log in to X inside the panel once. |
-| Use an X feed panel | Drag the top bar to move it, and click the panel to show its resize corner. Top bar: **‹** back, filter icon switches between **tweets only** (default) and the full page, **⟳** back to the profile and refresh, **×** removes the feed. Switch to the full page to log in. |
+| Use an X feed panel | Click the panel to show its top bar and resize corner (they hide again when you click elsewhere). Drag the top bar to move it. Top bar: **‹** back, filter icon switches between **tweets only** (default) and the full page, **⟳** back to the profile and refresh, **×** removes the feed. Switch to the full page to log in. |
 | Find a lost sticker | Menu bar icon → **Line up all stickers** |
 | Open the saved file or quit | Menu bar icon → **Show saved file in Finder** / **Quit Stickers** |
 

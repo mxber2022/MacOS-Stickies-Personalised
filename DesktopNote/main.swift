@@ -824,8 +824,9 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         bar.onDrop = { [weak self] in self?.keepOnScreen() }
         paper.addSubview(grip)
 
-        chrome = [grip]
-        grip.isHidden = true
+        // Top bar buttons and resize corner only appear when you click the panel.
+        chrome = [bar, grip]
+        chrome.forEach { $0.isHidden = true; $0.alphaValue = 0 }
 
         NSLayoutConstraint.activate([
             bar.topAnchor.constraint(equalTo: paper.topAnchor),
@@ -939,8 +940,21 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
 
     func windowDidMove(_ n: Notification) { data.frame = window.frame; board.scheduleSave() }
     func windowDidResize(_ n: Notification) { data.frame = window.frame; board.scheduleSave() }
-    func windowDidBecomeKey(_ n: Notification) { chrome.forEach { $0.isHidden = false } }
-    func windowDidResignKey(_ n: Notification) { chrome.forEach { $0.isHidden = true } }
+    func windowDidBecomeKey(_ n: Notification) { setChrome(true) }
+    func windowDidResignKey(_ n: Notification) { setChrome(false) }
+
+    func setChrome(_ visible: Bool) {
+        chromeVisible = visible
+        for v in chrome {
+            if visible { v.isHidden = false }
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.15
+                v.animator().alphaValue = visible ? 1 : 0
+            }, completionHandler: { [weak self] in
+                if self?.chromeVisible == false { v.isHidden = true }
+            })
+        }
+    }
 
     @objc func goBack() { if web.canGoBack { web.goBack() } else { goHome() } }
     @objc func goHome() { web.load(URLRequest(url: profileURL)) }
