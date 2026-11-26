@@ -175,14 +175,6 @@ final class ReminderPicker: NSViewController {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    private func quick(_ title: String, _ tag: Int) -> NSButton {
-        let b = NSButton(title: title, target: self, action: #selector(quickTapped(_:)))
-        b.controlSize = .small
-        b.bezelStyle = .rounded
-        b.tag = tag
-        return b
-    }
-
     override func loadView() {
         let title = NSTextField(labelWithString: "Remind me on")
         title.font = .boldSystemFont(ofSize: 13)
@@ -197,12 +189,6 @@ final class ReminderPicker: NSViewController {
         time.dateValue = initial
         let timeRow = NSStackView(views: [NSTextField(labelWithString: "at"), time])
 
-        var quickButtons = [quick("In 1 hour", 0)]
-        if Calendar.current.component(.hour, from: Date()) < 20 { quickButtons.append(quick("Tonight 8 pm", 1)) }
-        quickButtons.append(quick("Tomorrow 9 am", 2))
-        let quickRow = NSStackView(views: quickButtons)
-        quickRow.spacing = 6
-
         msg.textColor = .systemRed
         msg.font = .systemFont(ofSize: 11)
         msg.isHidden = true
@@ -216,24 +202,13 @@ final class ReminderPicker: NSViewController {
         bottom += [spacer, set]
         let bottomRow = NSStackView(views: bottom)
 
-        let stack = NSStackView(views: [title, cal, timeRow, quickRow, msg, bottomRow])
+        let stack = NSStackView(views: [title, cal, timeRow, msg, bottomRow])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
         bottomRow.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28).isActive = true
         view = stack
-    }
-
-    @objc func quickTapped(_ b: NSButton) {
-        let c = Calendar.current, now = Date()
-        let d: Date
-        switch b.tag {
-        case 0: d = now.addingTimeInterval(3600)
-        case 1: d = c.date(bySettingHour: 20, minute: 0, second: 0, of: now)!
-        default: d = c.date(bySettingHour: 9, minute: 0, second: 0, of: c.date(byAdding: .day, value: 1, to: now)!)!
-        }
-        onSet?(d)
     }
 
     @objc func setTapped() {
