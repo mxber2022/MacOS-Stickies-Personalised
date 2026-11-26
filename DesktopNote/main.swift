@@ -649,6 +649,10 @@ let tweetsOnlyScript = """
     html.dn-on article [data-testid="Tweet-User-Avatar"],
     html.dn-on article [data-testid^="UserAvatar-Container"] { display: none !important; }
     html.dn-on article [data-testid="caret"] { display: none !important; }
+    /* Stronger line between tweets (only recolours lines X already draws). */
+    html.dn-on .dn-list > *, html.dn-on .dn-list > * > * {
+      border-bottom-color: var(--dn-line) !important; border-top-color: var(--dn-line) !important;
+    }
   `;
   document.documentElement.appendChild(style);
   let enabled = false, queued = false;
@@ -672,6 +676,11 @@ let tweetsOnlyScript = """
     const list = tweetList();
     if (!list) return;
     document.documentElement.classList.add('dn-on');
+    list.classList.add('dn-list');
+    // Divider colour: medium grey on X's light theme, lighter grey on its dark themes.
+    const bg = getComputedStyle(document.body).backgroundColor.match(/\\d+/g) || [255, 255, 255];
+    const darkPage = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) < 128;
+    document.documentElement.style.setProperty('--dn-line', darkPage ? 'rgb(95, 105, 115)' : 'rgb(190, 200, 207)');
     // Inside the list: hide anything that isn't a tweet ("Who to follow", banners, etc.).
     // Also hide the pinned post (X labels it "Pinned" above the tweet).
     const isPinned = el => [...el.querySelectorAll('[data-testid="socialContext"]')]
