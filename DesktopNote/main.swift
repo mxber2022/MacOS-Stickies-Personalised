@@ -673,8 +673,12 @@ let tweetsOnlyScript = """
     if (!list) return;
     document.documentElement.classList.add('dn-on');
     // Inside the list: hide anything that isn't a tweet ("Who to follow", banners, etc.).
+    // Also hide the pinned post (X labels it "Pinned" above the tweet).
+    const isPinned = el => [...el.querySelectorAll('[data-testid="socialContext"]')]
+      .some(c => /^(Pinned|Angeheftet|Épinglé|Fijado|Fissato|Fixado|Vastgezet)/i.test(c.innerText.trim()));
     for (const child of list.children) {
-      if (child.tagName !== 'ARTICLE' && !child.querySelector('article')) child.classList.add('dn-hide');
+      const hasTweet = child.tagName === 'ARTICLE' || child.querySelector('article');
+      if (!hasTweet || isPinned(child)) child.classList.add('dn-hide');
       else child.classList.remove('dn-hide');
     }
     // In each tweet's top row: hide the icon-only buttons (the "…" menu and the Grok icon).
