@@ -371,6 +371,7 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
         // Shows the reminder time at the bottom (always visible when a reminder is set).
         reminderLabel.font = .systemFont(ofSize: 11, weight: .medium)
         reminderLabel.lineBreakMode = .byTruncatingTail
+        reminderLabel.alignment = .center
         reminderLabel.translatesAutoresizingMaskIntoConstraints = false
         paper.addSubview(reminderLabel)
         window.onMouseDown = { [weak self] in self?.stopRinging() }
@@ -402,9 +403,10 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
             grip.widthAnchor.constraint(equalToConstant: 16),
             grip.heightAnchor.constraint(equalToConstant: 16),
 
-            reminderLabel.leadingAnchor.constraint(equalTo: paper.leadingAnchor, constant: 14),
+            reminderLabel.centerXAnchor.constraint(equalTo: paper.centerXAnchor),
+            reminderLabel.leadingAnchor.constraint(greaterThanOrEqualTo: paper.leadingAnchor, constant: 22),
+            reminderLabel.trailingAnchor.constraint(lessThanOrEqualTo: paper.trailingAnchor, constant: -22),
             reminderLabel.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -3),
-            reminderLabel.trailingAnchor.constraint(lessThanOrEqualTo: grip.leadingAnchor, constant: -4),
         ])
 
         applyTheme()
