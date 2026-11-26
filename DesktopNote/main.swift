@@ -604,6 +604,7 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
 struct FeedData: Codable {
     var id: String = UUID().uuidString
     var user: String
+    var tweetsOnly: Bool? = nil          // nil = on (default)
     var x: Double, y: Double, w: Double, h: Double
     var frame: NSRect {
         get { NSRect(x: x, y: y, width: w, height: h) }
@@ -631,7 +632,60 @@ func clampToScreen(_ window: NSWindow) {
     if f != window.frame { window.setFrame(f, display: true, animate: true) }
 }
 
-final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+// Runs inside the X page. When "tweets only" is on and we're on a profile, it hides every part of the
+// page except the list of tweets: it walks up from the timeline and hides everything beside it.
+let tweetsOnlyScript = """
+(function () {
+  if (window.__dnSet) return;
+  const style = document.createElement('style');
+  style.textContent = `html.dn-on .dn-hide { display: none !important; }`;
+  document.documentElement.appendChild(style);
+  let enabled = false, queued = false;
+  const isProfile = () => /^\\/[A-Za-z0-9_]{1,15}\\/?$/.test(location.pathname);
+
+  // The tweet list = the smallest element that contains every tweet (<article>) on the page.
+  function tweetList() {
+    // Only tweets actually shown on screen (X also keeps hidden copies in the page while loading).
+    const tweets = [...document.querySelectorAll('article')]
+      .filter(a => !a.parentElement.closest('article') && a.getClientRects().length > 0);
+    if (!tweets.length) return null;
+    let box = tweets[0].parentElement;
+    while (box && !tweets.every(t => box.contains(t))) box = box.parentElement;
+    return box;
+  }
+  function restore() {
+    document.documentElement.classList.remove('dn-on');
+    document.querySelectorAll('.dn-hide').forEach(e => e.classList.remove('dn-hide'));
+  }
+  function isolate() {
+    const list = tweetList();
+    if (!list) return;
+    document.documentElement.classList.add('dn-on');
+    // Inside the list: hide anything that isn't a tweet ("Who to follow", banners, etc.).
+    for (const child of list.children) {
+      if (child.tagName !== 'ARTICLE' && !child.querySelector('article')) child.classList.add('dn-hide');
+      else child.classList.remove('dn-hide');
+    }
+    // Outside the list: hide everything beside it, all the way up to the page itself.
+    let el = list;
+    while (el && el !== document.body && el.parentElement) {
+      for (const sib of el.parentElement.children) {
+        if (sib !== el && sib.tagName !== 'STYLE' && sib.tagName !== 'SCRIPT') sib.classList.add('dn-hide');
+      }
+      el = el.parentElement;
+    }
+  }
+  function apply() {
+    queued = false;
+    if (enabled && isProfile()) isolate(); else restore();
+  }
+  new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(apply); } })
+    .observe(document.documentElement, { childList: true, subtree: true });
+  window.__dnSet = function (on) { enabled = !!on; apply(); };
+})();
+"""
+
+final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver {
     var data: FeedData
     let window: StickerWindow
     let paper = NSView()
@@ -643,6 +697,9 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
     var chromeVisible = false
     var buttons: [NSButton] = []
     var refreshTimer: Timer?
+    var loggedIn = false
+    var filterButton: NSButton!
+    var tweetsOnly: Bool { data.tweetsOnly ?? true }
 
     var profileURL: URL { URL(string: "https://x.com/\(data.user)")! }
 
@@ -652,6 +709,8 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         window = StickerWindow(contentRect: data.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()          // keeps you logged in to X between restarts
+        cfg.userContentController.addUserScript(
+            WKUserScript(source: tweetsOnlyScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         web = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         build()
@@ -694,7 +753,8 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         let home = iconButton("arrow.clockwise", "Refresh / back to profile", #selector(goHome))
         let open = iconButton("safari", "Open in browser", #selector(openInBrowser))
         let close = iconButton("xmark", "Remove this feed", #selector(removeMe))
-        buttons = [back, home, open, close]
+        filterButton = iconButton("line.3.horizontal.decrease.circle", "Tweets only / full page", #selector(toggleTweetsOnly))
+        buttons = [back, filterButton, home, open, close]
         buttons.forEach(bar.addSubview)
 
         titleLabel.stringValue = "@" + data.user
@@ -729,6 +789,8 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
 
             back.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
             back.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            filterButton.leadingAnchor.constraint(equalTo: back.trailingAnchor, constant: 10),
+            filterButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             titleLabel.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             close.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
@@ -750,6 +812,8 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         ])
 
         applyTheme()
+        updateFilterIcon()
+        web.configuration.websiteDataStore.httpCookieStore.add(self)
         web.load(URLRequest(url: profileURL))
         window.orderFrontRegardless()
         keepOnScreen()
@@ -771,6 +835,49 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
                                           : NSColor.white.withAlphaComponent(0.08)).cgColor
         titleLabel.textColor = inkColor.withAlphaComponent(0.8)
         buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.55) }
+    }
+
+    // MARK: Tweets-only mode
+
+    @objc func toggleTweetsOnly() {
+        data.tweetsOnly = !tweetsOnly
+        updateFilterIcon()
+        applyMode()
+        board.scheduleSave()
+    }
+
+    func updateFilterIcon() {
+        filterButton.image = NSImage(systemSymbolName: tweetsOnly ? "line.3.horizontal.decrease.circle.fill"
+                                                                  : "line.3.horizontal.decrease.circle",
+                                     accessibilityDescription: "Tweets only")
+        filterButton.toolTip = tweetsOnly ? "Showing tweets only — click for the full page"
+                                          : "Showing the full page — click for tweets only"
+    }
+
+    // Turn the filter off (full page) to log in or browse.
+    func applyMode() {
+        let on = tweetsOnly
+        web.evaluateJavaScript("window.__dnSet && window.__dnSet(\(on))", completionHandler: nil)
+    }
+
+    func checkLogin() {
+        web.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
+            guard let self else { return }
+            let was = self.loggedIn
+            self.loggedIn = cookies.contains { $0.name == "auth_token" && ($0.domain.hasSuffix("x.com") || $0.domain.hasSuffix("twitter.com")) }
+            // Just logged in and X sent you to its home feed: go back to this person's profile.
+            if self.loggedIn && !was, self.web.url?.path == "/home" { self.goHome() }
+            self.applyMode()
+        }
+    }
+
+    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        DispatchQueue.main.async { self.checkLogin() }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if loggedIn, webView.url?.path == "/home" { goHome(); return }
+        checkLogin()
     }
 
     func autoRefresh() {
@@ -802,6 +909,7 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         refreshTimer?.invalidate()
+        web.configuration.websiteDataStore.httpCookieStore.remove(self)
         board.removeFeed(self)
     }
 
