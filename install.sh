@@ -26,5 +26,10 @@ cat > "$PLIST" <<PL
 PL
 
 launchctl bootout "gui/$(id -u)/local.desktopnote" 2>/dev/null || true
+# Wait for the old copy to fully stop before starting the new one.
+for _ in $(seq 1 20); do
+  launchctl print "gui/$(id -u)/local.desktopnote" >/dev/null 2>&1 || break
+  sleep 0.25
+done
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "Done — DesktopNote is running. Look for the note icon in your menu bar."
