@@ -4,7 +4,7 @@
 
 Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and everything saves itself automatically.
 
-It's a single Swift file with no dependencies. On its own it uses about 30 MB of memory and no CPU while idle. Each X feed panel is a real web page and adds roughly 350 MB, plus a short burst of CPU each time it refreshes.
+It's a single Swift file with no dependencies. On its own it uses about 30 MB of memory and no CPU while idle. Each X feed panel is a real web page and adds roughly 350 MB, plus a short burst of CPU when it refreshes (once an hour).
 
 ## Features
 
@@ -16,7 +16,7 @@ It's a single Swift file with no dependencies. On its own it uses about 30 MB of
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
 - **Hide or show everything** with one click: stickers and X feeds. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
-- **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets: X's menus, profile header, suggestions, profile pictures, the person's name and @handle on their own posts (only the time is shown), the pinned post, the Grok and **…** buttons, and the reply/repost/like row under each post are hidden. It refreshes every minute while you're not using it, and you stay logged in between restarts.
+- **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets: X's menus, profile header, suggestions, profile pictures, the person's name and @handle on their own posts (only the time is shown), the pinned post, the Grok and **…** buttons, and the reply/repost/like row under each post are hidden. It refreshes every hour while you're not using it, and you stay logged in between restarts.
 - **Stays on screen.** Stickers and feed panels can't get lost under the menu bar or off the edge of the screen.
 
 ## Requirements

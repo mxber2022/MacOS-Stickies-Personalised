@@ -872,11 +872,11 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         window.orderFrontRegardless()
         keepOnScreen()
 
-        // Refresh every minute while you're not using the panel.
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // Refresh every hour while you're not using the panel.
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             self?.autoRefresh()
         }
-        refreshTimer?.tolerance = 5
+        refreshTimer?.tolerance = 60
     }
 
     func applyTheme() {
