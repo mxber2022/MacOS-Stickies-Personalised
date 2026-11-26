@@ -4,11 +4,13 @@
 import Cocoa
 import UniformTypeIdentifiers
 import UserNotifications
+import WebKit
 
 let lifeDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/life")
 let storeURL = lifeDir.appendingPathComponent("stickers.json")
 let oldNotesURL = lifeDir.appendingPathComponent("notes.txt")
 let wallpaperDir = lifeDir.appendingPathComponent("wallpapers")
+let feedsURL = lifeDir.appendingPathComponent("feeds.json")
 
 // Sticker paper colours: yellow, pink, blue, green, purple, orange
 let palette: [NSColor] = [
@@ -96,9 +98,11 @@ final class StickerWindow: NSWindow {
 
 final class DragBar: NSView {
     var onDrop: (() -> Void)?
+    var showsPill = true
     override func mouseDown(with event: NSEvent) { window?.performDrag(with: event); onDrop?() }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
     override func draw(_ dirtyRect: NSRect) {
+        guard showsPill else { return }
         let w: CGFloat = 40, h: CGFloat = 5
         let r = NSRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2, width: w, height: h)
         inkColor.withAlphaComponent(0.35).setFill()
@@ -595,10 +599,228 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
     }
 }
 
+// MARK: - X feed panel (shows someone's x.com profile on the desktop)
+
+struct FeedData: Codable {
+    var id: String = UUID().uuidString
+    var user: String
+    var x: Double, y: Double, w: Double, h: Double
+    var frame: NSRect {
+        get { NSRect(x: x, y: y, width: w, height: h) }
+        set { x = newValue.minX; y = newValue.minY; w = newValue.width; h = newValue.height }
+    }
+}
+
+// X shows "browser not supported" to unknown browsers, so present as regular Safari.
+let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
+// Keep any panel's top bar below the menu bar and part of it on screen.
+func clampToScreen(_ window: NSWindow) {
+    var f = window.frame
+    let screen = NSScreen.screens.max { a, b in
+        a.visibleFrame.intersection(f).width * a.visibleFrame.intersection(f).height <
+        b.visibleFrame.intersection(f).width * b.visibleFrame.intersection(f).height
+    } ?? NSScreen.main
+    guard let vf = screen?.visibleFrame else { return }
+    f.size.height = min(f.height, vf.height)
+    f.size.width = min(f.width, vf.width)
+    f.origin.y = min(f.origin.y, vf.maxY - f.height)
+    f.origin.y = max(f.origin.y, vf.minY - f.height + 60)
+    f.origin.x = max(f.origin.x, vf.minX - f.width + 80)
+    f.origin.x = min(f.origin.x, vf.maxX - 80)
+    if f != window.frame { window.setFrame(f, display: true, animate: true) }
+}
+
+final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+    var data: FeedData
+    let window: StickerWindow
+    let paper = NSView()
+    let glass = NSVisualEffectView()
+    let web: WKWebView
+    let titleLabel = NSTextField(labelWithString: "")
+    unowned let board: Board
+    var chrome: [NSView] = []
+    var chromeVisible = false
+    var buttons: [NSButton] = []
+    var refreshTimer: Timer?
+
+    var profileURL: URL { URL(string: "https://x.com/\(data.user)")! }
+
+    init(_ data: FeedData, board: Board) {
+        self.data = data
+        self.board = board
+        window = StickerWindow(contentRect: data.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let cfg = WKWebViewConfiguration()
+        cfg.websiteDataStore = .default()          // keeps you logged in to X between restarts
+        web = WKWebView(frame: .zero, configuration: cfg)
+        super.init()
+        build()
+    }
+
+    private func iconButton(_ symbol: String, _ tip: String, _ action: Selector) -> NSButton {
+        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!,
+                         target: self, action: action)
+        b.isBordered = false
+        b.toolTip = tip
+        b.translatesAutoresizingMaskIntoConstraints = false
+        return b
+    }
+
+    private func build() {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.isReleasedWhenClosed = false
+        window.level = stickerLevel
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        window.delegate = self
+
+        paper.wantsLayer = true
+        paper.layer?.cornerRadius = 8
+        paper.layer?.masksToBounds = true
+        window.contentView = paper
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.frame = paper.bounds
+        glass.autoresizingMask = [.width, .height]
+        paper.addSubview(glass)
+
+        let bar = DragBar()
+        bar.showsPill = false
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        paper.addSubview(bar)
+
+        let back = iconButton("chevron.left", "Back", #selector(goBack))
+        let home = iconButton("arrow.clockwise", "Refresh / back to profile", #selector(goHome))
+        let open = iconButton("safari", "Open in browser", #selector(openInBrowser))
+        let close = iconButton("xmark", "Remove this feed", #selector(removeMe))
+        buttons = [back, home, open, close]
+        buttons.forEach(bar.addSubview)
+
+        titleLabel.stringValue = "@" + data.user
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(titleLabel)
+
+        web.customUserAgent = safariUserAgent
+        web.navigationDelegate = self
+        web.uiDelegate = self
+        web.pageZoom = 0.9
+        web.wantsLayer = true
+        web.layer?.cornerRadius = 6
+        web.layer?.masksToBounds = true
+        web.translatesAutoresizingMaskIntoConstraints = false
+        paper.addSubview(web)
+
+        let grip = ResizeGrip()
+        grip.translatesAutoresizingMaskIntoConstraints = false
+        grip.onDone = { [weak self] in self?.keepOnScreen() }
+        bar.onDrop = { [weak self] in self?.keepOnScreen() }
+        paper.addSubview(grip)
+
+        chrome = [grip]
+        grip.isHidden = true
+
+        NSLayoutConstraint.activate([
+            bar.topAnchor.constraint(equalTo: paper.topAnchor),
+            bar.leadingAnchor.constraint(equalTo: paper.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: paper.trailingAnchor),
+            bar.heightAnchor.constraint(equalToConstant: 28),
+
+            back.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
+            back.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            titleLabel.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            close.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
+            close.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            open.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -10),
+            open.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            home.trailingAnchor.constraint(equalTo: open.leadingAnchor, constant: -10),
+            home.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+
+            web.topAnchor.constraint(equalTo: bar.bottomAnchor),
+            web.leadingAnchor.constraint(equalTo: paper.leadingAnchor, constant: 4),
+            web.trailingAnchor.constraint(equalTo: paper.trailingAnchor, constant: -4),
+            web.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -4),
+
+            grip.trailingAnchor.constraint(equalTo: paper.trailingAnchor, constant: -3),
+            grip.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -3),
+            grip.widthAnchor.constraint(equalToConstant: 16),
+            grip.heightAnchor.constraint(equalToConstant: 16),
+        ])
+
+        applyTheme()
+        web.load(URLRequest(url: profileURL))
+        window.orderFrontRegardless()
+        keepOnScreen()
+
+        // Refresh every 5 minutes while you're not using the panel.
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.autoRefresh()
+        }
+        refreshTimer?.tolerance = 30
+    }
+
+    func applyTheme() {
+        let light = board.lightStyle
+        glass.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+        glass.material = light ? .popover : .hudWindow
+        glass.alphaValue = light ? 0.75 : 0.7
+        paper.layer?.borderWidth = 1
+        paper.layer?.borderColor = (light ? NSColor.black.withAlphaComponent(0.10)
+                                          : NSColor.white.withAlphaComponent(0.08)).cgColor
+        titleLabel.textColor = inkColor.withAlphaComponent(0.8)
+        buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.55) }
+    }
+
+    func autoRefresh() {
+        guard !board.hidden, !window.isKeyWindow, !web.isLoading else { return }
+        let onProfile = web.url?.path.lowercased() == "/" + data.user.lowercased()
+        if onProfile { web.reload() } else { web.load(URLRequest(url: profileURL)) }
+    }
+
+    func keepOnScreen() {
+        clampToScreen(window)
+        data.frame = window.frame
+        board.scheduleSave()
+    }
+
+    func windowDidMove(_ n: Notification) { data.frame = window.frame; board.scheduleSave() }
+    func windowDidResize(_ n: Notification) { data.frame = window.frame; board.scheduleSave() }
+    func windowDidBecomeKey(_ n: Notification) { chrome.forEach { $0.isHidden = false } }
+    func windowDidResignKey(_ n: Notification) { chrome.forEach { $0.isHidden = true } }
+
+    @objc func goBack() { if web.canGoBack { web.goBack() } else { goHome() } }
+    @objc func goHome() { web.load(URLRequest(url: profileURL)) }
+    @objc func openInBrowser() { NSWorkspace.shared.open(web.url ?? profileURL) }
+
+    @objc func removeMe() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Remove the @\(data.user) feed?"
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        refreshTimer?.invalidate()
+        board.removeFeed(self)
+    }
+
+    // Links that want a new window: X / login pages stay in the panel, everything else opens in your browser.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard let url = action.request.url else { return nil }
+        let host = url.host?.lowercased() ?? ""
+        let stayInside = ["x.com", "twitter.com", "google.com", "apple.com"].contains { host == $0 || host.hasSuffix("." + $0) }
+        if stayInside { webView.load(action.request) } else { NSWorkspace.shared.open(url) }
+        return nil
+    }
+}
+
 // MARK: - All stickers + saving
 
 final class Board {
     var stickers: [Sticker] = []
+    var feeds: [FeedPanel] = []
 
     // Sticker style: "auto" follows the wallpaper, or forced "light" / "dark".
     var styleMode: String = UserDefaults.standard.string(forKey: "stickerStyle") ?? "auto" {
@@ -613,6 +835,7 @@ final class Board {
         lastWallpaper = NSScreen.main.flatMap { NSWorkspace.shared.desktopImageURL(for: $0) }
         inkColor = lightStyle ? darkInk : .white
         stickers.forEach { $0.applyTheme() }
+        feeds.forEach { $0.applyTheme() }
     }
 
     // Notice when the wallpaper is changed in System Settings (checked every 3 seconds, very cheap).
@@ -638,6 +861,36 @@ final class Board {
         for st in stickers {
             if hidden { st.window.orderOut(nil) } else { st.window.orderFrontRegardless() }
         }
+        for f in feeds {
+            if hidden { f.window.orderOut(nil) } else { f.window.orderFrontRegardless() }
+        }
+    }
+
+    // MARK: X feeds
+
+    func loadFeeds() {
+        guard let raw = try? Data(contentsOf: feedsURL),
+              let list = try? JSONDecoder().decode([FeedData].self, from: raw) else { return }
+        list.forEach { feeds.append(FeedPanel($0, board: self)) }
+    }
+
+    func addFeed(user: String) {
+        if hidden { hidden = false }
+        let s = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let h = min(720, s.height - 80)
+        let offset = CGFloat(feeds.count) * 30
+        var d = FeedData(user: user, x: 0, y: 0, w: 0, h: 0)
+        d.frame = NSRect(x: s.minX + 60 + offset, y: s.maxY - h - 40 - offset, width: 420, height: h)
+        let f = FeedPanel(d, board: self)
+        feeds.append(f)
+        save()
+    }
+
+    func removeFeed(_ f: FeedPanel) {
+        f.window.orderOut(nil)
+        f.window.delegate = nil
+        feeds.removeAll { $0 === f }
+        save()
     }
     private var saveTimer: Timer?
 
@@ -742,6 +995,9 @@ final class Board {
         guard let raw = try? enc.encode(stickers.map { $0.data }) else { return }
         try? FileManager.default.createDirectory(at: lifeDir, withIntermediateDirectories: true)
         try? raw.write(to: storeURL, options: .atomic)
+        if let feedRaw = try? enc.encode(feeds.map { $0.data }) {
+            try? feedRaw.write(to: feedsURL, options: .atomic)
+        }
     }
 }
 
@@ -780,6 +1036,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         buildStatusItem()
         board.watchWallpaper()
         board.load()
+        board.loadFeeds()
         board.applyHidden()
         UNUserNotificationCenter.current().delegate = self
         board.startReminderClock()
@@ -793,6 +1050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let menu = NSMenu()
         func add(_ title: String, _ sel: Selector) { menu.addItem(withTitle: title, action: sel, keyEquivalent: "").target = self }
         add("New sticker", #selector(newSticker))
+        add("Add X feed…", #selector(addFeed))
         toggleItem = menu.addItem(withTitle: "", action: #selector(toggleHidden), keyEquivalent: "")
         toggleItem.target = self
         board.onHiddenChange = { [weak self] in self?.refreshToggle() }
@@ -830,6 +1088,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func newSticker() { board.addSticker(near: nil) }
+
+    @objc func addFeed() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Add an X feed"
+        alert.informativeText = "Type the X username (like @nasa) or paste a link to their profile."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "@username"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        var user = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: user), let host = url.host?.lowercased(),
+           host.hasSuffix("x.com") || host.hasSuffix("twitter.com") {
+            user = url.pathComponents.dropFirst().first ?? ""
+        }
+        user = user.replacingOccurrences(of: "@", with: "")
+        guard user.range(of: "^[A-Za-z0-9_]{1,15}$", options: .regularExpression) != nil else {
+            let bad = NSAlert()
+            bad.messageText = "That doesn't look like an X username"
+            bad.informativeText = "Usernames are up to 15 letters, numbers or underscores, like @nasa."
+            bad.runModal()
+            return
+        }
+        board.addFeed(user: user)
+    }
 
     // Show notifications even though this app is running.
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,

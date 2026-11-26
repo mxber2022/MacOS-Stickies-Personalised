@@ -4,7 +4,7 @@
 
 Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and everything saves itself automatically.
 
-It's a single Swift file with no dependencies. It uses about 20 MB of memory and no CPU while idle.
+It's a single Swift file with no dependencies. It uses about 20 MB of memory and no CPU while idle. Each X feed panel adds a web page, which typically uses a few hundred MB.
 
 ## Features
 
@@ -16,6 +16,7 @@ It's a single Swift file with no dependencies. It uses about 20 MB of memory and
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
 - **Hide or show all stickers** with one click. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
+- **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. It refreshes every 5 minutes while you're not using it, and you stay logged in between restarts.
 - **Stays on screen.** Stickers can't get lost under the menu bar or off the edge of the screen.
 
 ## Requirements
@@ -48,6 +49,8 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | Stop a ringing reminder | Click the sticker |
 | Hide or show everything | Menu bar icon → **Hide all stickers** / **Show all stickers** |
 | Change wallpaper, sticker style or font | Menu bar icon → **Change wallpaper…** / **Sticker style** / **Font** |
+| Show someone's X posts | Menu bar icon → **Add X feed…** → type their username. Log in to X inside the panel once. |
+| Use an X feed panel | Top bar: **‹** back, **⟳** back to the profile and refresh, Safari icon opens it in your browser, **×** removes the feed |
 | Find a lost sticker | Menu bar icon → **Line up all stickers** |
 | Open the saved file or quit | Menu bar icon → **Show saved file in Finder** / **Quit Stickers** |
 
@@ -56,10 +59,12 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | What | Where |
 | --- | --- |
 | Sticker text, positions and reminders | `~/Desktop/life/stickers.json` |
+| X feeds you've added | `~/Desktop/life/feeds.json` |
+| X login | Stored by macOS for this app only (WebKit data for `local.desktopnote`) |
 | Wallpaper copies | `~/Desktop/life/wallpapers/` |
 | Font, style and hidden setting | macOS preferences (`local.desktopnote`) |
 
-`stickers.json` and `wallpapers/` are listed in `.gitignore`, so your personal notes are never committed.
+`stickers.json`, `feeds.json` and `wallpapers/` are listed in `.gitignore`, so your personal notes are never committed.
 
 > The data folder is fixed to `~/Desktop/life`. To use a different folder, change `lifeDir` at the top of `DesktopNote/main.swift` and run `./install.sh` again.
 
