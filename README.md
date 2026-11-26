@@ -1,3 +1,5 @@
+<p align="center"><img src="DesktopNote/icon-preview.png" width="160" alt="DesktopNote icon"></p>
+
 # DesktopNote
 
 Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and everything saves itself automatically.
@@ -73,8 +75,11 @@ This stops the app and removes the login item. Your `stickers.json` is kept.
 ```
 DesktopNote/
   main.swift                      # the whole app
+  make-icon.swift                 # draws the app icon (swift DesktopNote/make-icon.swift)
+  icon-preview.png                # 1024px preview of the icon
   DesktopNote.app/Contents/
     Info.plist                    # app bundle settings (no Dock icon)
+    Resources/AppIcon.icns        # the app icon
 install.sh                        # build + start at login
 uninstall.sh                      # stop + remove from login
 ```
