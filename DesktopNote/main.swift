@@ -176,38 +176,72 @@ final class ReminderPicker: NSViewController {
     required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
-        let title = NSTextField(labelWithString: "Remind me on")
-        title.font = .boldSystemFont(ofSize: 13)
+        let title = NSTextField(labelWithString: "Set a reminder")
+        title.font = .systemFont(ofSize: 16, weight: .semibold)
+        let subtitle = NSTextField(labelWithString: "Pick the day and time to be reminded.")
+        subtitle.font = .systemFont(ofSize: 12)
+        subtitle.textColor = .secondaryLabelColor
 
+        // Calendar without the heavy blue frame, centred.
         cal.datePickerStyle = .clockAndCalendar
         cal.datePickerElements = .yearMonthDay
         cal.dateValue = initial
         cal.minDate = Calendar.current.startOfDay(for: Date())
+        cal.isBezeled = false
+        cal.drawsBackground = false
+        cal.focusRingType = .none
 
+        // Time row: "Time" on the left, a larger time field on the right.
+        let timeLabel = NSTextField(labelWithString: "Time")
+        timeLabel.font = .systemFont(ofSize: 14, weight: .medium)
         time.datePickerStyle = .textFieldAndStepper
         time.datePickerElements = .hourMinute
         time.dateValue = initial
-        let timeRow = NSStackView(views: [NSTextField(labelWithString: "at"), time])
+        time.controlSize = .large
+        time.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
+        let timeSpacer = NSView()
+        timeSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let timeRow = NSStackView(views: [timeLabel, timeSpacer, time])
 
         msg.textColor = .systemRed
-        msg.font = .systemFont(ofSize: 11)
+        msg.font = .systemFont(ofSize: 12)
         msg.isHidden = true
+
+        let line = NSBox()
+        line.boxType = .separator
 
         let set = NSButton(title: "Set reminder", target: self, action: #selector(setTapped))
         set.keyEquivalent = "\r"
+        set.controlSize = .large
         var bottom: [NSView] = []
-        if hasReminder { bottom.append(NSButton(title: "Remove", target: self, action: #selector(clearTapped))) }
+        if hasReminder {
+            let remove = NSButton(title: "Remove", target: self, action: #selector(clearTapped))
+            remove.controlSize = .large
+            bottom.append(remove)
+        }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         bottom += [spacer, set]
         let bottomRow = NSStackView(views: bottom)
+        bottomRow.spacing = 10
 
-        let stack = NSStackView(views: [title, cal, timeRow, msg, bottomRow])
+        let header = NSStackView(views: [title, subtitle])
+        header.orientation = .vertical
+        header.alignment = .leading
+        header.spacing = 3
+
+        let stack = NSStackView(views: [header, cal, timeRow, msg, line, bottomRow])
         stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
-        bottomRow.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28).isActive = true
+        stack.alignment = .centerX
+        stack.spacing = 16
+        stack.setCustomSpacing(18, after: header)
+        stack.setCustomSpacing(20, after: cal)
+        stack.setCustomSpacing(20, after: timeRow)
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 22, bottom: 20, right: 22)
+        stack.widthAnchor.constraint(equalToConstant: 320).isActive = true
+        for row in [header, timeRow, msg, line, bottomRow] {
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -44).isActive = true
+        }
         view = stack
     }
 
