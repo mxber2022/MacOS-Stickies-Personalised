@@ -645,6 +645,10 @@ let tweetsOnlyScript = """
     html.dn-on article button[aria-label="More"] { display: none !important; }   /* the "…" menu */
     html.dn-on article div:has(> [data-post-avatar]) { display: none !important; }   /* profile picture column */
     html.dn-on article img[src*="profile_images"] { display: none !important; }
+    html.dn-on article div:has(> [data-testid="Tweet-User-Avatar"]),
+    html.dn-on article [data-testid="Tweet-User-Avatar"],
+    html.dn-on article [data-testid^="UserAvatar-Container"] { display: none !important; }
+    html.dn-on article [data-testid="caret"] { display: none !important; }
   `;
   document.documentElement.appendChild(style);
   let enabled = false, queued = false;
@@ -893,6 +897,7 @@ final class FeedPanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         if loggedIn, webView.url?.path == "/home" { goHome(); return }
         checkLogin()
     }
+
 
     func autoRefresh() {
         guard !board.hidden, !window.isKeyWindow, !web.isLoading else { return }
