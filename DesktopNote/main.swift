@@ -76,10 +76,16 @@ struct StickerData: Codable {
     var color: Int = 0
     var remindAt: Double? = nil      // reminder time (seconds since 1970), nil = no reminder
     var agentSession: String? = nil  // this sticker's Claude conversation (Claude Code session id)
+    var chat: [ChatLine]? = nil      // the conversation as shown in its chat window
     var frame: NSRect {
         get { NSRect(x: x, y: y, width: w, height: h) }
         set { x = newValue.minX; y = newValue.minY; w = newValue.width; h = newValue.height }
     }
+}
+
+struct ChatLine: Codable {
+    var role: String                 // "user", "claude" or "error"
+    var text: String
 }
 
 // MARK: - Window that can take keyboard focus even without a title bar
@@ -155,19 +161,18 @@ final class StickerTextView: NSTextView {
 }
 
 // MARK: - Claude on stickers
-// Write a line starting with "?" on a sticker and press Enter: the question goes to Claude
-// (through the Claude Code you're logged in to) and the answer is written underneath.
-// Every sticker keeps its own conversation, so follow-up questions remember earlier ones.
+// The ✨ button on a sticker opens a small chat window beside it. Questions go to Claude through
+// the Claude Code you're logged in to. Every sticker keeps its own conversation, so follow-up
+// questions remember earlier ones.
 
 let agentDir = URL(fileURLWithPath: NSHomeDirectory())
     .appendingPathComponent("Library/Application Support/DesktopNote/agent")
-let thinkingMark = "→ thinking…"
 
 let agentSystemPrompt = """
-You live on a sticky note on the user's Mac desktop. The user asks you questions by writing a line \
-that starts with "?" on the note, and your reply is written into the note right under it, in a \
-handwriting font. Reply in plain text only: no Markdown (no asterisks, #, bullet symbols, tables or \
-code fences). Keep it short, usually one to four short lines, unless the user asks for more. \
+You are attached to a sticky note on the user's Mac desktop and chat with them in a small window \
+beside it. Each message includes what the note currently says, so you can help with it. \
+Reply in plain text only: no Markdown (no asterisks, #, tables or code fences); for a list, start \
+lines with "•". Keep replies short and to the point, a few lines, unless the user asks for more. \
 Use web search when the question needs current information.
 """
 
@@ -261,21 +266,251 @@ func askClaude(_ prompt: String, session: String?,
     }
 }
 
-/// Turns Claude's reply into sticker lines: "→ first line", following lines indented.
-func formatAnswer(_ text: String) -> String {
+/// Tidies Claude's reply for the chat window: no Markdown symbols, no double blank lines.
+func cleanAnswer(_ text: String) -> String {
     var lines: [String] = []
     for raw in text.replacingOccurrences(of: "**", with: "").components(separatedBy: .newlines) {
         var l = raw.trimmingCharacters(in: .whitespaces)
-        if l.hasPrefix("- ") || l.hasPrefix("* ") || l.hasPrefix("• ") { l = "· " + l.dropFirst(2) }
+        if l.hasPrefix("- ") || l.hasPrefix("* ") { l = "• " + l.dropFirst(2) }
         while l.hasPrefix("#") { l.removeFirst() }
         l = l.trimmingCharacters(in: .whitespaces)
         if l.isEmpty && (lines.last?.isEmpty ?? true) { continue }   // no double blank lines
         lines.append(l)
     }
     while lines.last?.isEmpty == true { lines.removeLast() }
-    if lines.isEmpty { lines = ["(no answer)"] }
-    return lines.enumerated().map { i, l in i == 0 ? "→ " + l : (l.isEmpty ? "" : "  " + l) }
-        .joined(separator: "\n")
+    return lines.isEmpty ? "(no answer)" : lines.joined(separator: "\n")
+}
+
+// MARK: - Chat window (opens beside a sticker from its ✨ button)
+
+final class ChatPanel: NSObject, NSTextFieldDelegate {
+    unowned let sticker: Sticker
+    let window: StickerWindow
+    let paper = NSView()
+    let glass = NSVisualEffectView()
+    let transcript = NSTextView(frame: .zero)
+    let input = NSTextField()
+    let inputBox = NSView()
+    let titleLabel = NSTextField(labelWithString: "Claude")
+    var buttons: [NSButton] = []
+    static let width: CGFloat = 330
+
+    init(sticker: Sticker) {
+        self.sticker = sticker
+        window = StickerWindow(contentRect: NSRect(x: 0, y: 0, width: ChatPanel.width, height: 420),
+                               styleMask: [.borderless], backing: .buffered, defer: false)
+        super.init()
+        build()
+    }
+
+    private func iconButton(_ symbol: String, _ tip: String, _ action: Selector) -> NSButton {
+        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!,
+                         target: self, action: action)
+        b.isBordered = false
+        b.toolTip = tip
+        b.translatesAutoresizingMaskIntoConstraints = false
+        return b
+    }
+
+    private func build() {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.isReleasedWhenClosed = false
+        window.level = stickerLevel
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+
+        paper.wantsLayer = true
+        paper.layer?.cornerRadius = 10
+        paper.layer?.masksToBounds = true
+        window.contentView = paper
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.frame = paper.bounds
+        glass.autoresizingMask = [.width, .height]
+        paper.addSubview(glass)
+
+        // Header: drag it to move the chat; ✨ Claude on the left, new chat and close on the right.
+        let header = DragBar()
+        header.showsPill = false
+        header.translatesAutoresizingMaskIntoConstraints = false
+        paper.addSubview(header)
+        titleLabel.stringValue = "✨ Claude"
+        titleLabel.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(titleLabel)
+        let close = iconButton("xmark", "Close", #selector(closeChat))
+        let fresh = iconButton("square.and.pencil", "New conversation", #selector(newConversation))
+        let send = iconButton("arrow.up.circle.fill", "Send", #selector(sendMessage))
+        buttons = [close, fresh, send]
+        header.addSubview(close)
+        header.addSubview(fresh)
+
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        paper.addSubview(scroll)
+        transcript.drawsBackground = false
+        transcript.isEditable = false
+        transcript.isSelectable = true          // so you can copy an answer
+        transcript.textContainerInset = NSSize(width: 10, height: 6)
+        transcript.isVerticallyResizable = true
+        transcript.isHorizontallyResizable = false
+        transcript.autoresizingMask = [.width]
+        transcript.textContainer?.widthTracksTextView = true
+        scroll.documentView = transcript
+
+        inputBox.wantsLayer = true
+        inputBox.layer?.cornerRadius = 9
+        inputBox.layer?.borderWidth = 1
+        inputBox.translatesAutoresizingMaskIntoConstraints = false
+        paper.addSubview(inputBox)
+        input.isBordered = false
+        input.drawsBackground = false
+        input.focusRingType = .none
+        input.font = .systemFont(ofSize: 13)
+        input.cell?.isScrollable = true
+        input.cell?.wraps = false
+        input.delegate = self
+        input.translatesAutoresizingMaskIntoConstraints = false
+        inputBox.addSubview(input)
+        inputBox.addSubview(send)
+
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: paper.topAnchor),
+            header.leadingAnchor.constraint(equalTo: paper.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: paper.trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: 34),
+            titleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 14),
+            titleLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            close.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -12),
+            close.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            fresh.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -14),
+            fresh.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: paper.leadingAnchor, constant: 4),
+            scroll.trailingAnchor.constraint(equalTo: paper.trailingAnchor, constant: -4),
+            scroll.bottomAnchor.constraint(equalTo: inputBox.topAnchor, constant: -8),
+
+            inputBox.leadingAnchor.constraint(equalTo: paper.leadingAnchor, constant: 10),
+            inputBox.trailingAnchor.constraint(equalTo: paper.trailingAnchor, constant: -10),
+            inputBox.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -10),
+            inputBox.heightAnchor.constraint(equalToConstant: 34),
+            input.leadingAnchor.constraint(equalTo: inputBox.leadingAnchor, constant: 10),
+            input.centerYAnchor.constraint(equalTo: inputBox.centerYAnchor),
+            input.trailingAnchor.constraint(equalTo: send.leadingAnchor, constant: -6),
+            send.trailingAnchor.constraint(equalTo: inputBox.trailingAnchor, constant: -7),
+            send.centerYAnchor.constraint(equalTo: inputBox.centerYAnchor),
+        ])
+        applyTheme()
+    }
+
+    func applyTheme() {
+        let light = sticker.board.lightStyle
+        glass.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+        glass.material = light ? .popover : .hudWindow
+        glass.alphaValue = light ? 0.85 : 0.8      // a bit less see-through than a sticker, so answers are easy to read
+        paper.layer?.borderWidth = 1
+        paper.layer?.borderColor = (light ? NSColor.black.withAlphaComponent(0.10)
+                                          : NSColor.white.withAlphaComponent(0.10)).cgColor
+        titleLabel.textColor = inkColor.withAlphaComponent(0.85)
+        buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.55) }
+        buttons.last?.contentTintColor = inkColor.withAlphaComponent(0.8)   // send
+        inputBox.layer?.backgroundColor = inkColor.withAlphaComponent(0.07).cgColor
+        inputBox.layer?.borderColor = inkColor.withAlphaComponent(0.15).cgColor
+        input.textColor = inkColor
+        input.placeholderAttributedString = NSAttributedString(string: "Ask Claude…", attributes: [
+            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: inkColor.withAlphaComponent(0.4)])
+        (input.currentEditor() as? NSTextView)?.insertionPointColor = inkColor
+        render()
+    }
+
+    /// Redraws the conversation and scrolls to the newest message.
+    func render() {
+        let out = NSMutableAttributedString()
+        let body = NSFont.systemFont(ofSize: 13.5)
+        let label = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let text = NSMutableParagraphStyle()
+        text.lineSpacing = 2
+        func add(name: String, _ msg: String, color: NSColor, first: Bool) {
+            let head = NSMutableParagraphStyle()
+            head.paragraphSpacingBefore = first ? 2 : 14
+            head.paragraphSpacing = 2
+            out.append(NSAttributedString(string: name + "\n", attributes: [
+                .font: label, .foregroundColor: inkColor.withAlphaComponent(0.5), .paragraphStyle: head]))
+            out.append(NSAttributedString(string: msg + "\n", attributes: [
+                .font: body, .foregroundColor: color, .paragraphStyle: text]))
+        }
+        let lines = sticker.data.chat ?? []
+        for (i, l) in lines.enumerated() {
+            add(name: l.role == "user" ? "You" : "Claude", l.text,
+                color: l.role == "error" ? .systemOrange : inkColor, first: i == 0)
+        }
+        if sticker.asking {
+            add(name: "Claude", "thinking…", color: inkColor.withAlphaComponent(0.45), first: lines.isEmpty)
+        } else if lines.isEmpty {
+            out.append(NSAttributedString(string: "Ask me anything. I can see what's written on this sticker, and I'll remember this conversation.", attributes: [
+                .font: body, .foregroundColor: inkColor.withAlphaComponent(0.5), .paragraphStyle: text]))
+        }
+        transcript.textStorage?.setAttributedString(out)
+        transcript.scrollToEndOfDocument(nil)
+    }
+
+    /// Next to the sticker (right side, or left if there's no room), top edges lined up.
+    func place() {
+        let s = sticker.window.frame
+        guard let vf = (sticker.window.screen ?? NSScreen.main)?.visibleFrame else { return }
+        let w = ChatPanel.width, h = min(max(s.height, 420), vf.height)
+        var x = s.maxX + 8
+        if x + w > vf.maxX { x = s.minX - 8 - w }
+        x = max(vf.minX, min(x, vf.maxX - w))
+        let y = max(vf.minY, min(s.maxY - h, vf.maxY - h))
+        window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+    }
+
+    var isOpen: Bool { window.isVisible }
+
+    func show() {
+        place()
+        render()
+        window.orderFrontRegardless()
+        sticker.window.addChildWindow(window, ordered: .above)   // moves along with the sticker
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(input)
+    }
+
+    @objc func closeChat() {
+        sticker.window.removeChildWindow(window)
+        window.orderOut(nil)
+    }
+
+    @objc func sendMessage() {
+        let q = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        input.stringValue = ""
+        sticker.ask(q)
+    }
+
+    @objc func newConversation() {
+        guard !sticker.asking else { NSSound.beep(); return }
+        sticker.data.chat = []
+        sticker.data.agentSession = nil
+        sticker.board.scheduleSave()
+        render()
+        window.makeFirstResponder(input)
+    }
+
+    // Enter sends, Esc closes.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+        if sel == #selector(NSResponder.insertNewline(_:)) { sendMessage(); return true }
+        if sel == #selector(NSResponder.cancelOperation(_:)) { closeChat(); return true }
+        return false
+    }
 }
 
 // MARK: - Reminder picker (opens from the bell button)
@@ -459,7 +694,8 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
         let add = iconButton("plus", "New sticker", #selector(newSticker))
         let delete = iconButton("xmark", "Delete sticker", #selector(deleteMe))
         bell = iconButton("bell", "Set a reminder", #selector(openReminder))
-        buttons = [add, bell, delete]
+        let claude = iconButton("sparkles", "Ask Claude", #selector(toggleChat))
+        buttons = [add, bell, claude, delete]
         buttons.forEach(bar.addSubview)
 
         let scroll = NSScrollView()
@@ -487,8 +723,6 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
-        // An answer that was still on its way when the app quit won't arrive any more.
-        data.text = data.text.replacingOccurrences(of: thinkingMark, with: "→ (stopped — ask again)")
         textView.string = data.text
         textView.delegate = self
         scroll.documentView = textView
@@ -521,6 +755,8 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
             add.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             bell.leadingAnchor.constraint(equalTo: add.trailingAnchor, constant: 12),
             bell.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            claude.leadingAnchor.constraint(equalTo: bell.trailingAnchor, constant: 12),
+            claude.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             delete.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -14),
             delete.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
 
@@ -564,6 +800,7 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
         textView.shadow = shadow
         buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.5) }
         updateReminderLabel()
+        chatPanel?.applyTheme()
         chrome.forEach { $0.needsDisplay = true }
         textView.needsDisplay = true
     }
@@ -618,84 +855,46 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
 
     @objc func newSticker() { board.addSticker(near: window.frame) }
 
-    // MARK: Ask Claude ("? question" + Enter)
+    // MARK: Ask Claude (chat window from the ✨ button)
 
-    var askQueue: [String] = []      // question lines waiting for an answer, oldest first
+    var chatPanel: ChatPanel?
+    var askQueue: [String] = []      // questions waiting for an answer, oldest first
     var asking = false
 
-    func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
-        guard sel == #selector(NSResponder.insertNewline(_:)) else { return false }
-        let ns = tv.string as NSString
-        let cursor = tv.selectedRange()
-        guard cursor.length == 0 else { return false }
-        var start = 0, end = 0, contentsEnd = 0
-        ns.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: cursor.location, length: 0))
-        guard cursor.location == contentsEnd else { return false }          // only when Enter is pressed at the end of the line
-        let line = ns.substring(with: NSRange(location: start, length: contentsEnd - start))
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("?"),
-              !trimmed.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-
-        // "? question" → "? question\n→ thinking…\n" with the cursor on the fresh line below.
-        tv.insertText("\n" + thinkingMark + "\n", replacementRange: cursor)
-        askQueue.append(line)
-        askNext()
-        return true
+    @objc func toggleChat() {
+        if let c = chatPanel, c.isOpen { c.closeChat(); return }
+        if chatPanel == nil { chatPanel = ChatPanel(sticker: self) }
+        chatPanel?.show()
     }
 
-    /// The note's own writing, without the questions and Claude's answers.
-    func noteContext() -> String {
-        var keep: [String] = [], inAnswer = false
-        for l in textView.string.components(separatedBy: "\n") {
-            let t = l.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("?") { inAnswer = false; continue }
-            if t.hasPrefix("→") { inAnswer = true; continue }
-            if inAnswer && (t.isEmpty || l.hasPrefix("  ")) { continue }
-            inAnswer = false
-            keep.append(l)
-        }
-        return keep.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    func ask(_ question: String) {
+        data.chat = (data.chat ?? []) + [ChatLine(role: "user", text: question)]
+        board.scheduleSave()
+        askQueue.append(question)
+        askNext()
+        chatPanel?.render()
     }
 
     /// Questions on one sticker are answered one at a time, in order, so the conversation stays in sequence.
     func askNext() {
-        guard !asking, let line = askQueue.first else { return }
+        guard !asking, let question = askQueue.first else { return }
         asking = true
-        let question = line.trimmingCharacters(in: .whitespaces).dropFirst().trimmingCharacters(in: .whitespaces)
-        let context = noteContext()
-        let prompt = (context.isEmpty ? "" : "The note currently says:\n\(context)\n\n") + "Question: \(question)"
+        let note = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = (note.isEmpty ? "(The note is empty.)" : "The note currently says:\n\(note)") + "\n\nQuestion: \(question)"
         askClaude(prompt, session: data.agentSession) { [weak self] answer, session, error in
             guard let self = self else { return }
-            if answer != nil, let s = session { self.data.agentSession = s }
-            self.fillAnswer(for: line, with: answer.map(formatAnswer) ?? "→ (\(error ?? "no answer"))")
+            if let a = answer {
+                if let s = session { self.data.agentSession = s }
+                self.data.chat = (self.data.chat ?? []) + [ChatLine(role: "claude", text: cleanAnswer(a))]
+            } else {
+                self.data.chat = (self.data.chat ?? []) + [ChatLine(role: "error", text: error ?? "No answer.")]
+            }
+            self.board.scheduleSave()
             self.askQueue.removeFirst()
             self.asking = false
             self.askNext()
+            self.chatPanel?.render()
         }
-    }
-
-    /// Replaces the "→ thinking…" under this question with the answer (if you haven't deleted it meanwhile).
-    func fillAnswer(for line: String, with answer: String) {
-        let ns = textView.string as NSString
-        var r = ns.range(of: line + "\n" + thinkingMark)
-        if r.location == NSNotFound {
-            // You edited the question while Claude was thinking: still fine if it's the only one waiting.
-            guard askQueue.count == 1, ns.components(separatedBy: thinkingMark).count == 2 else { return }
-            r = ns.range(of: thinkingMark)
-        } else {
-            r = NSRange(location: r.location + (line as NSString).length + 1, length: (thinkingMark as NSString).length)
-        }
-        guard r.location != NSNotFound else { return }
-        let sel = textView.selectedRange()
-        guard textView.shouldChangeText(in: r, replacementString: answer) else { return }
-        textView.textStorage?.replaceCharacters(in: r, with: answer)
-        textView.didChangeText()   // saves, like typing would
-        let delta = (answer as NSString).length - r.length
-        if sel.location >= r.location + r.length {                     // keep the cursor where you were typing
-            textView.setSelectedRange(NSRange(location: sel.location + delta, length: sel.length))
-        }
-        textView.font = stickerFont
-        textView.textColor = inkColor
     }
 
     // MARK: Reminders
@@ -1243,7 +1442,7 @@ final class Board {
 
     func applyHidden() {
         for st in stickers {
-            if hidden { st.window.orderOut(nil) } else { st.window.orderFrontRegardless() }
+            if hidden { st.chatPanel?.closeChat(); st.window.orderOut(nil) } else { st.window.orderFrontRegardless() }
         }
         for f in feeds {
             if hidden { f.window.orderOut(nil) } else { f.window.orderFrontRegardless() }
@@ -1325,6 +1524,7 @@ final class Board {
     }
 
     func remove(_ s: Sticker) {
+        s.chatPanel?.closeChat()
         s.window.orderOut(nil)
         s.window.delegate = nil
         stickers.removeAll { $0 === s }
