@@ -281,6 +281,80 @@ func cleanAnswer(_ text: String) -> String {
     return lines.isEmpty ? "(no answer)" : lines.joined(separator: "\n")
 }
 
+// MARK: - Siri-style border: a glowing rainbow that slowly flows around the edge
+
+final class SiriBorder: NSView {
+    static let colors: [CGColor] = [0x2E7BFF, 0x8E5CFF, 0xFF4FD8, 0xFF8A3D, 0xFFD23F, 0x3DD9FF, 0x2E7BFF].map {
+        NSColor(srgbRed: CGFloat(($0 >> 16) & 0xFF) / 255, green: CGFloat(($0 >> 8) & 0xFF) / 255,
+                blue: CGFloat($0 & 0xFF) / 255, alpha: 1).cgColor
+    }
+    // A sharp line on the edge plus two softer, wider glows inside it.
+    private let ringStyle: [(width: CGFloat, calm: Float, thinking: Float)] = [(3, 1, 1), (10, 0.4, 0.7), (22, 0.16, 0.32)]
+    private var hosts: [CALayer] = [], gradients: [CAGradientLayer] = [], masks: [CAShapeLayer] = []
+    var cornerRadius: CGFloat = 10
+    private var thinking = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        for style in ringStyle {
+            let host = CALayer()
+            host.opacity = style.calm
+            let g = CAGradientLayer()
+            g.type = .conic
+            g.colors = SiriBorder.colors
+            g.startPoint = CGPoint(x: 0.5, y: 0.5)
+            g.endPoint = CGPoint(x: 1, y: 0.5)
+            let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+            spin.fromValue = 0
+            spin.toValue = -2 * Double.pi          // clockwise
+            spin.duration = 6
+            spin.repeatCount = .infinity
+            g.add(spin, forKey: "spin")
+            let m = CAShapeLayer()
+            m.fillColor = nil
+            m.strokeColor = NSColor.black.cgColor
+            m.lineWidth = style.width
+            host.addSublayer(g)
+            host.mask = m
+            layer?.addSublayer(host)
+            hosts.append(host); gradients.append(g); masks.append(m)
+        }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }   // clicks go through to the chat
+
+    override func setFrameSize(_ size: NSSize) {
+        super.setFrameSize(size)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let b = NSRect(origin: .zero, size: size), side = hypot(size.width, size.height)
+        for i in hosts.indices {
+            hosts[i].frame = b
+            masks[i].frame = b
+            masks[i].path = CGPath(roundedRect: b, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+            gradients[i].bounds = CGRect(x: 0, y: 0, width: side, height: side)   // big enough to cover the corners while it turns
+            gradients[i].position = CGPoint(x: b.midX, y: b.midY)
+        }
+        CATransaction.commit()
+    }
+
+    /// Flows faster and glows brighter while Claude is thinking.
+    func setThinking(_ on: Bool) {
+        guard on != thinking else { return }
+        thinking = on
+        let now = CACurrentMediaTime()
+        for (i, g) in gradients.enumerated() {
+            let t = g.convertTime(now, from: nil)              // change speed without the colours jumping
+            g.speed = on ? 3.5 : 1
+            g.timeOffset = t
+            g.beginTime = now
+            hosts[i].opacity = on ? ringStyle[i].thinking : ringStyle[i].calm
+        }
+    }
+}
+
 // MARK: - Chat window (opens beside a sticker from its ✨ button)
 
 final class ChatPanel: NSObject, NSTextFieldDelegate {
@@ -292,6 +366,7 @@ final class ChatPanel: NSObject, NSTextFieldDelegate {
     let input = NSTextField()
     let inputBox = NSView()
     let titleLabel = NSTextField(labelWithString: "Claude")
+    let border = SiriBorder(frame: .zero)
     var buttons: [NSButton] = []
     static let width: CGFloat = 330
 
@@ -406,6 +481,9 @@ final class ChatPanel: NSObject, NSTextFieldDelegate {
             send.trailingAnchor.constraint(equalTo: inputBox.trailingAnchor, constant: -7),
             send.centerYAnchor.constraint(equalTo: inputBox.centerYAnchor),
         ])
+        border.frame = paper.bounds
+        border.autoresizingMask = [.width, .height]
+        paper.addSubview(border)             // on top of everything
         applyTheme()
     }
 
@@ -414,9 +492,7 @@ final class ChatPanel: NSObject, NSTextFieldDelegate {
         glass.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         glass.material = light ? .popover : .hudWindow
         glass.alphaValue = light ? 0.85 : 0.8      // a bit less see-through than a sticker, so answers are easy to read
-        paper.layer?.borderWidth = 1.5
-        paper.layer?.borderColor = (light ? NSColor(srgbRed: 0.80, green: 0.62, blue: 0.18, alpha: 1)    // gold, a touch deeper on light wallpapers
-                                          : NSColor(srgbRed: 0.93, green: 0.76, blue: 0.33, alpha: 1)).cgColor
+        paper.layer?.borderWidth = 0           // the Siri-style border draws the edge
         titleLabel.textColor = inkColor.withAlphaComponent(0.85)
         buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.55) }
         buttons.last?.contentTintColor = inkColor.withAlphaComponent(0.8)   // send
@@ -458,6 +534,7 @@ final class ChatPanel: NSObject, NSTextFieldDelegate {
         }
         transcript.textStorage?.setAttributedString(out)
         transcript.scrollToEndOfDocument(nil)
+        border.setThinking(sticker.asking)
     }
 
     /// Next to the sticker (right side, or left if there's no room), top edges lined up.
