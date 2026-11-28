@@ -75,6 +75,7 @@ struct StickerData: Codable {
     var x: Double, y: Double, w: Double, h: Double
     var color: Int = 0
     var remindAt: Double? = nil      // reminder time (seconds since 1970), nil = no reminder
+    var agentSession: String? = nil  // this sticker's Claude conversation (Claude Code session id)
     var frame: NSRect {
         get { NSRect(x: x, y: y, width: w, height: h) }
         set { x = newValue.minX; y = newValue.minY; w = newValue.width; h = newValue.height }
@@ -151,6 +152,130 @@ final class StickerTextView: NSTextView {
             at: NSPoint(x: textContainerInset.width + pad, y: textContainerInset.height),
             withAttributes: [.font: stickerFont, .foregroundColor: inkColor.withAlphaComponent(0.4)])
     }
+}
+
+// MARK: - Claude on stickers
+// Write a line starting with "?" on a sticker and press Enter: the question goes to Claude
+// (through the Claude Code you're logged in to) and the answer is written underneath.
+// Every sticker keeps its own conversation, so follow-up questions remember earlier ones.
+
+let agentDir = URL(fileURLWithPath: NSHomeDirectory())
+    .appendingPathComponent("Library/Application Support/DesktopNote/agent")
+let thinkingMark = "→ thinking…"
+
+let agentSystemPrompt = """
+You live on a sticky note on the user's Mac desktop. The user asks you questions by writing a line \
+that starts with "?" on the note, and your reply is written into the note right under it, in a \
+handwriting font. Reply in plain text only: no Markdown (no asterisks, #, bullet symbols, tables or \
+code fences). Keep it short, usually one to four short lines, unless the user asks for more. \
+Use web search when the question needs current information.
+"""
+
+private var claudePath: String?
+func findClaude() -> String? {
+    if let p = claudePath { return p }
+    let home = NSHomeDirectory()
+    for p in ["\(home)/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+              "\(home)/.claude/local/claude"] where FileManager.default.isExecutableFile(atPath: p) {
+        claudePath = p
+        return p
+    }
+    // Last resort: ask a login shell, which has the user's full PATH.
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    p.arguments = ["-lc", "command -v claude"]
+    let out = Pipe()
+    p.standardOutput = out
+    p.standardError = FileHandle.nullDevice
+    guard (try? p.run()) != nil else { return nil }
+    p.waitUntilExit()
+    let s = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    claudePath = s.hasPrefix("/") ? s : nil
+    return claudePath
+}
+
+/// Runs `claude -p` in the background. Calls back on the main thread with the answer and the
+/// session id to resume next time, or an error message.
+func askClaude(_ prompt: String, session: String?,
+               done: @escaping (_ answer: String?, _ session: String?, _ error: String?) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+        func finish(_ a: String?, _ s: String?, _ e: String?) { DispatchQueue.main.async { done(a, s, e) } }
+        guard let claude = findClaude() else {
+            return finish(nil, nil, "Claude Code isn't installed (couldn't find the claude command).")
+        }
+        try? FileManager.default.createDirectory(at: agentDir, withIntermediateDirectories: true)
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: claude)
+        p.currentDirectoryURL = agentDir
+        var args = ["-p", "--output-format", "json",
+                    "--setting-sources", "project", "--strict-mcp-config",   // skip your plugins, hooks and MCP servers
+                    "--tools", "WebSearch,WebFetch",                         // it can look things up, nothing else
+                    "--allowedTools", "WebSearch", "WebFetch",
+                    "--append-system-prompt", agentSystemPrompt]
+        if let s = session { args += ["--resume", s] }
+        p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["USER"] = env["USER"] ?? NSUserName()
+        env["HOME"] = env["HOME"] ?? NSHomeDirectory()
+        env["PATH"] = "\(NSHomeDirectory())/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        p.environment = env
+
+        let input = Pipe(), output = Pipe(), errors = Pipe()
+        p.standardInput = input
+        p.standardOutput = output
+        p.standardError = errors
+        do { try p.run() } catch { return finish(nil, nil, "Couldn't start Claude: \(error.localizedDescription)") }
+
+        var errData = Data()
+        let errRead = DispatchGroup()
+        errRead.enter()
+        DispatchQueue.global().async { errData = errors.fileHandleForReading.readDataToEndOfFile(); errRead.leave() }
+
+        // Give up after 4 minutes.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 240) { if p.isRunning { p.terminate() } }
+
+        input.fileHandleForWriting.write(Data(prompt.utf8))
+        try? input.fileHandleForWriting.close()
+        let outData = output.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        errRead.wait()
+
+        let json = (try? JSONSerialization.jsonObject(with: outData)) as? [String: Any]
+        let result = (json?["result"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newSession = json?["session_id"] as? String ?? session
+        if p.terminationReason == .uncaughtSignal { return finish(nil, nil, "Claude took too long — ask again.") }
+        if let r = result, !r.isEmpty, json?["is_error"] as? Bool != true {
+            return finish(r, newSession, nil)
+        }
+        // The saved conversation is gone (e.g. deleted): start a fresh one.
+        let raw = (String(data: outData, encoding: .utf8) ?? "") + (String(data: errData, encoding: .utf8) ?? "")
+        if session != nil, raw.contains("No conversation found") {
+            askClaude(prompt, session: nil, done: done)
+            return
+        }
+        let errText = String(data: errData, encoding: .utf8)?
+            .split(separator: "\n").last.map(String.init)?.trimmingCharacters(in: .whitespaces)
+        finish(nil, nil, result.flatMap { $0.isEmpty ? nil : $0 } ?? errText ?? "Claude didn't answer (exit \(p.terminationStatus)).")
+    }
+}
+
+/// Turns Claude's reply into sticker lines: "→ first line", following lines indented.
+func formatAnswer(_ text: String) -> String {
+    var lines: [String] = []
+    for raw in text.replacingOccurrences(of: "**", with: "").components(separatedBy: .newlines) {
+        var l = raw.trimmingCharacters(in: .whitespaces)
+        if l.hasPrefix("- ") || l.hasPrefix("* ") || l.hasPrefix("• ") { l = "· " + l.dropFirst(2) }
+        while l.hasPrefix("#") { l.removeFirst() }
+        l = l.trimmingCharacters(in: .whitespaces)
+        if l.isEmpty && (lines.last?.isEmpty ?? true) { continue }   // no double blank lines
+        lines.append(l)
+    }
+    while lines.last?.isEmpty == true { lines.removeLast() }
+    if lines.isEmpty { lines = ["(no answer)"] }
+    return lines.enumerated().map { i, l in i == 0 ? "→ " + l : (l.isEmpty ? "" : "  " + l) }
+        .joined(separator: "\n")
 }
 
 // MARK: - Reminder picker (opens from the bell button)
@@ -362,6 +487,8 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
+        // An answer that was still on its way when the app quit won't arrive any more.
+        data.text = data.text.replacingOccurrences(of: thinkingMark, with: "→ (stopped — ask again)")
         textView.string = data.text
         textView.delegate = self
         scroll.documentView = textView
@@ -490,6 +617,86 @@ final class Sticker: NSObject, NSTextViewDelegate, NSWindowDelegate, NSPopoverDe
     }
 
     @objc func newSticker() { board.addSticker(near: window.frame) }
+
+    // MARK: Ask Claude ("? question" + Enter)
+
+    var askQueue: [String] = []      // question lines waiting for an answer, oldest first
+    var asking = false
+
+    func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
+        guard sel == #selector(NSResponder.insertNewline(_:)) else { return false }
+        let ns = tv.string as NSString
+        let cursor = tv.selectedRange()
+        guard cursor.length == 0 else { return false }
+        var start = 0, end = 0, contentsEnd = 0
+        ns.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: cursor.location, length: 0))
+        guard cursor.location == contentsEnd else { return false }          // only when Enter is pressed at the end of the line
+        let line = ns.substring(with: NSRange(location: start, length: contentsEnd - start))
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("?"),
+              !trimmed.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+
+        // "? question" → "? question\n→ thinking…\n" with the cursor on the fresh line below.
+        tv.insertText("\n" + thinkingMark + "\n", replacementRange: cursor)
+        askQueue.append(line)
+        askNext()
+        return true
+    }
+
+    /// The note's own writing, without the questions and Claude's answers.
+    func noteContext() -> String {
+        var keep: [String] = [], inAnswer = false
+        for l in textView.string.components(separatedBy: "\n") {
+            let t = l.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("?") { inAnswer = false; continue }
+            if t.hasPrefix("→") { inAnswer = true; continue }
+            if inAnswer && (t.isEmpty || l.hasPrefix("  ")) { continue }
+            inAnswer = false
+            keep.append(l)
+        }
+        return keep.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Questions on one sticker are answered one at a time, in order, so the conversation stays in sequence.
+    func askNext() {
+        guard !asking, let line = askQueue.first else { return }
+        asking = true
+        let question = line.trimmingCharacters(in: .whitespaces).dropFirst().trimmingCharacters(in: .whitespaces)
+        let context = noteContext()
+        let prompt = (context.isEmpty ? "" : "The note currently says:\n\(context)\n\n") + "Question: \(question)"
+        askClaude(prompt, session: data.agentSession) { [weak self] answer, session, error in
+            guard let self = self else { return }
+            if answer != nil, let s = session { self.data.agentSession = s }
+            self.fillAnswer(for: line, with: answer.map(formatAnswer) ?? "→ (\(error ?? "no answer"))")
+            self.askQueue.removeFirst()
+            self.asking = false
+            self.askNext()
+        }
+    }
+
+    /// Replaces the "→ thinking…" under this question with the answer (if you haven't deleted it meanwhile).
+    func fillAnswer(for line: String, with answer: String) {
+        let ns = textView.string as NSString
+        var r = ns.range(of: line + "\n" + thinkingMark)
+        if r.location == NSNotFound {
+            // You edited the question while Claude was thinking: still fine if it's the only one waiting.
+            guard askQueue.count == 1, ns.components(separatedBy: thinkingMark).count == 2 else { return }
+            r = ns.range(of: thinkingMark)
+        } else {
+            r = NSRange(location: r.location + (line as NSString).length + 1, length: (thinkingMark as NSString).length)
+        }
+        guard r.location != NSNotFound else { return }
+        let sel = textView.selectedRange()
+        guard textView.shouldChangeText(in: r, replacementString: answer) else { return }
+        textView.textStorage?.replaceCharacters(in: r, with: answer)
+        textView.didChangeText()   // saves, like typing would
+        let delta = (answer as NSString).length - r.length
+        if sel.location >= r.location + r.length {                     // keep the cursor where you were typing
+            textView.setSelectedRange(NSRange(location: sel.location + delta, length: sel.length))
+        }
+        textView.font = stickerFont
+        textView.textColor = inkColor
+    }
 
     // MARK: Reminders
 

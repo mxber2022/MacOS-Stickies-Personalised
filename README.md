@@ -14,6 +14,7 @@ It's a single Swift file with no dependencies. On its own it uses about 30 MB of
 - **Matches your wallpaper.** Light wallpapers get light stickers with dark text, and dark wallpapers get dark stickers with white text. This updates within about 3 seconds when you change the wallpaper. You can also force Light or Dark.
 - **Handwriting fonts.** Noteworthy is the default. You can also choose Bradley Hand, Chalkboard, Marker Felt, Snell Roundhand, or plain text.
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
+- **Ask Claude on any sticker.** Write a line starting with `?` and press Enter, e.g. `? how long do boiled eggs keep`. Claude's answer is written right under it. Each sticker has its own conversation, so follow-up questions remember the earlier ones and Claude can see what else is written on that sticker. It can search the web, but it can't touch your files or run anything. This uses the Claude Code you're already logged in to, so there's no API key, and questions count toward your Claude plan.
 - **Hide or show everything** with one click: stickers and X feeds. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
 - **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets: X's menus, profile header, suggestions, profile pictures, the person's name and @handle on their own posts (only the time is shown), the pinned post, the Grok and **…** buttons, and the reply/repost/like row under each post are hidden. It refreshes every hour while you're not using it, and you stay logged in between restarts.
@@ -22,6 +23,7 @@ It's a single Swift file with no dependencies. On its own it uses about 30 MB of
 ## Requirements
 
 - macOS 12 or later (the X feed filter needs macOS 12.3 or later)
+- To ask Claude on stickers: [Claude Code](https://claude.com/claude-code) installed and logged in (run `claude` once in Terminal to log in)
 - Swift compiler from the Xcode Command Line Tools. Install it with `xcode-select --install` if `swiftc` isn't found.
 
 ## Install
@@ -47,6 +49,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | Delete a sticker | **×** (asks first if it has writing on it) |
 | Set a reminder | 🔔 → pick a date and time → **Set reminder** |
 | Stop a ringing reminder | Click the sticker |
+| Ask Claude | On a new line type `?` and your question, then press Enter. `→ thinking…` turns into the answer (usually a few seconds). Ask a follow-up with another `?` line. To start a fresh conversation, use a new sticker. |
 | Hide or show everything | Menu bar icon → **Hide all stickers** / **Show all stickers** |
 | Change wallpaper, sticker style or font | Menu bar icon → **Change wallpaper…** / **Sticker style** / **Font** |
 | Show someone's X posts | Menu bar icon → **Add X feed…** → type their username. Log in to X inside the panel once. |
@@ -60,6 +63,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | --- | --- |
 | Sticker text, positions and reminders | `~/Desktop/life/stickers.json` |
 | X feeds you've added | `~/Desktop/life/feeds.json` |
+| Claude conversations | One per sticker, in Claude Code's history for `~/Library/Application Support/DesktopNote/agent` (the session id is in `stickers.json`) |
 | X login | Stored by macOS for this app only (WebKit data for `local.desktopnote`) |
 | Wallpaper copies | `~/Desktop/life/wallpapers/` |
 | Font, style and hidden setting | macOS preferences (`local.desktopnote`) |
