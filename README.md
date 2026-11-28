@@ -4,7 +4,7 @@
 
 Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and everything saves itself automatically.
 
-It's a single Swift file with no dependencies. On its own it uses about 30 MB of memory and no CPU while idle. Each X feed panel is a real web page and adds roughly 350 MB, plus a short burst of CPU when it refreshes (once an hour).
+It's a single Swift file with no dependencies. On its own it uses about 30 MB of memory and no CPU while idle. Each X feed panel is a real web page and adds roughly 350 MB, plus a short burst of CPU when it refreshes (once an hour). While Claude is answering a question, Claude Code runs in the background for a few seconds and briefly uses a few hundred MB more.
 
 ## Features
 
@@ -14,7 +14,7 @@ It's a single Swift file with no dependencies. On its own it uses about 30 MB of
 - **Matches your wallpaper.** Light wallpapers get light stickers with dark text, and dark wallpapers get dark stickers with white text. This updates within about 3 seconds when you change the wallpaper. You can also force Light or Dark.
 - **Handwriting fonts.** Noteworthy is the default. You can also choose Bradley Hand, Chalkboard, Marker Felt, Snell Roundhand, or plain text.
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
-- **Ask Claude on any sticker.** Click ✨ on a sticker to open a chat window beside it, type a question and press Enter. Each sticker has its own conversation that's saved, so follow-up questions remember the earlier ones, and Claude can see what's written on that sticker. Your note text is never changed. It can search the web, but it can't touch your files or run anything. This uses the Claude Code you're already logged in to, so there's no API key, and questions count toward your Claude plan.
+- **Ask Claude on any sticker.** Click ✨ on a sticker to open a frosted chat window with a gold border beside it, type a question and press Enter. Each sticker has its own conversation that's saved, so follow-up questions remember the earlier ones, and Claude can see what's written on that sticker. Your note text is never changed. It can search the web, but it can't touch your files or run anything. This uses the Claude Code you're already logged in to, so there's no API key, and questions count toward your Claude plan.
 - **Hide or show everything** with one click: stickers and X feeds. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
 - **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets: X's menus, profile header, suggestions, profile pictures, the person's name and @handle on their own posts (only the time is shown), the pinned post, the Grok and **…** buttons, and the reply/repost/like row under each post are hidden. It refreshes every hour while you're not using it, and you stay logged in between restarts.
@@ -63,7 +63,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | --- | --- |
 | Sticker text, positions and reminders | `~/Desktop/life/stickers.json` |
 | X feeds you've added | `~/Desktop/life/feeds.json` |
-| Claude conversations | One per sticker: the messages are in `stickers.json`, and Claude's memory of them is in Claude Code's history for `~/Library/Application Support/DesktopNote/agent` (the session id is in `stickers.json`) |
+| Claude conversations | One per sticker: the messages are in `stickers.json`, and Claude's memory of them is in Claude Code's history for `~/Library/Application Support/DesktopNote/agent` |
 | X login | Stored by macOS for this app only (WebKit data for `local.desktopnote`) |
 | Wallpaper copies | `~/Desktop/life/wallpapers/` |
 | Font, style and hidden setting | macOS preferences (`local.desktopnote`) |
@@ -78,7 +78,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 ./uninstall.sh
 ```
 
-This stops the app and removes the login item. Your `stickers.json` and `feeds.json` are kept.
+This stops the app and removes the login item. Your `stickers.json` and `feeds.json` (including your Claude chats) are kept.
 
 ## Project layout
 
