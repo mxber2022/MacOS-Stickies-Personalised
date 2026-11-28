@@ -2,23 +2,44 @@
 
 # DesktopNote
 
-Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and everything saves itself automatically.
+Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and ask Claude (AI) anything from any sticker. Everything saves itself automatically.
 
 It's a single Swift file with no dependencies. On its own it uses about 30 MB of memory and no CPU while idle. Each X feed panel is a real web page and adds roughly 350 MB, plus a short burst of CPU when it refreshes (once an hour). While Claude is answering a question, Claude Code runs in the background for a few seconds and briefly uses a few hundred MB more.
 
 ## Features
 
 - **Stickers on your wallpaper.** They sit above the desktop icons and behind your normal windows, and they show on every Space.
+- **AI assistant on every sticker.** Click ✨ to chat with Claude in a window beside the sticker. Each sticker has its own Claude that remembers your conversation and can see what's written on that sticker. See [Ask Claude (AI)](#ask-claude-ai).
 - **Autosave.** Text, position and size are saved as you type, move or resize, and everything comes back after a restart.
 - **Frosted glass look.** The stickers are see-through, and the controls (drag bar, **+**, 🔔, ✨, **×**, resize corner) only appear when you click a sticker.
 - **Matches your wallpaper.** Light wallpapers get light stickers with dark text, and dark wallpapers get dark stickers with white text. This updates within about 3 seconds when you change the wallpaper. You can also force Light or Dark.
 - **Handwriting fonts.** Noteworthy is the default. You can also choose Bradley Hand, Chalkboard, Marker Felt, Snell Roundhand, or plain text.
 - **Reminders.** Set a date and time on any sticker. When it's due you get a notification and a chime that repeats for 30 seconds, and the sticker jumps in front of everything with a glowing orange edge until you click it. Reminders that came due while your Mac was asleep go off as soon as it wakes.
-- **Ask Claude on any sticker.** Click ✨ on a sticker to open a frosted chat window beside it, with a Siri-style glowing rainbow border that flows faster while Claude is thinking, type a question and press Enter. Each sticker has its own conversation that's saved, so follow-up questions remember the earlier ones, and Claude can see what's written on that sticker. Your note text is never changed. It can search the web, but it can't touch your files or run anything. This uses the Claude Code you're already logged in to, so there's no API key, and questions count toward your Claude plan.
 - **Hide or show everything** with one click: stickers and X feeds. While they're hidden, the menu bar icon changes to a crossed-out eye. The app remembers which you chose.
 - **Change the wallpaper** from the menu. The app keeps a copy of the image so the wallpaper survives if the original is deleted.
 - **X (Twitter) feeds.** Pin someone's X profile to your desktop in a frosted panel. By default it shows only their tweets: X's menus, profile header, suggestions, profile pictures, the person's name and @handle on their own posts (only the time is shown), the pinned post, the Grok and **…** buttons, and the reply/repost/like row under each post are hidden. It refreshes every hour while you're not using it, and you stay logged in between restarts.
 - **Stays on screen.** Stickers and feed panels can't get lost under the menu bar or off the edge of the screen.
+
+## Ask Claude (AI)
+
+Every sticker has its own AI assistant, powered by Claude.
+
+1. Click a sticker, then click **✨** in its top bar.
+2. A chat window opens beside the sticker. Type a question and press Enter.
+3. Claude answers, usually within a few seconds. Ask follow-up questions in the same chat.
+
+What it can do:
+
+- **Knows your note.** Claude sees what's written on that sticker, so you can ask things like "what can I cook with this?" on a grocery list, "fix the typos", or "turn this into a plan".
+- **Remembers.** Each sticker has its own conversation, and it's saved, so it's still there after you close the chat or restart your Mac. The pencil icon starts a fresh conversation.
+- **Looks things up.** Claude can search the web for current information.
+- **Stays in its lane.** It can't read your files, change your notes or run anything on your Mac. Copy an answer into your note yourself if you want it there.
+
+The chat window is frosted glass with a Siri-style rainbow border that flows faster while Claude is thinking. **Esc** or **×** closes it.
+
+How it connects: the app runs [Claude Code](https://claude.com/claude-code) in the background with `claude -p`, using the account you're already logged in with. There's no API key to set up, and questions count toward your Claude plan. Your plugins, hooks and MCP servers aren't loaded for these questions.
+
+Privacy: each question sends that sticker's text and your question to Anthropic, the same as using Claude Code. Your other stickers aren't sent.
 
 ## Requirements
 
