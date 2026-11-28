@@ -414,9 +414,9 @@ final class ChatPanel: NSObject, NSTextFieldDelegate {
         glass.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         glass.material = light ? .popover : .hudWindow
         glass.alphaValue = light ? 0.85 : 0.8      // a bit less see-through than a sticker, so answers are easy to read
-        paper.layer?.borderWidth = 1
-        paper.layer?.borderColor = (light ? NSColor.black.withAlphaComponent(0.10)
-                                          : NSColor.white.withAlphaComponent(0.10)).cgColor
+        paper.layer?.borderWidth = 1.5
+        paper.layer?.borderColor = (light ? NSColor(srgbRed: 0.80, green: 0.62, blue: 0.18, alpha: 1)    // gold, a touch deeper on light wallpapers
+                                          : NSColor(srgbRed: 0.93, green: 0.76, blue: 0.33, alpha: 1)).cgColor
         titleLabel.textColor = inkColor.withAlphaComponent(0.85)
         buttons.forEach { $0.contentTintColor = inkColor.withAlphaComponent(0.55) }
         buttons.last?.contentTintColor = inkColor.withAlphaComponent(0.8)   // send
