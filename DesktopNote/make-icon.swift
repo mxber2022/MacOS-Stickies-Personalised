@@ -1,4 +1,4 @@
-// Draws the AI DesktopNote app icon and writes DesktopNote.app/Contents/Resources/AppIcon.icns
+// Draws the AI Stickies app icon and writes DesktopNote.app/Contents/Resources/AppIcon.icns
 // Run:  swift DesktopNote/make-icon.swift   (from the repo root)
 
 import AppKit

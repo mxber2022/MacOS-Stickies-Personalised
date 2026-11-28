@@ -9,9 +9,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>local.desktopnote</string>
 	<key>CFBundleName</key>
-	<string>AI DesktopNote</string>
+	<string>AI Stickies</string>
 	<key>CFBundleDisplayName</key>
-	<string>AI DesktopNote</string>
+	<string>AI Stickies</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds AI DesktopNote and sets it to start automatically at login.
+# Builds AI Stickies and sets it to start automatically at login.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -32,4 +32,4 @@ for _ in $(seq 1 20); do
   sleep 0.25
 done
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-echo "Done — AI DesktopNote is running. Look for the note icon in your menu bar."
+echo "Done — AI Stickies is running. Look for the note icon in your menu bar."

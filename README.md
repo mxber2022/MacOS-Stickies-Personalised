@@ -1,6 +1,6 @@
-<p align="center"><img src="DesktopNote/icon-preview.png" width="160" alt="AI DesktopNote icon"></p>
+<p align="center"><img src="DesktopNote/icon-preview.png" width="160" alt="AI Stickies icon"></p>
 
-# AI DesktopNote
+# AI Stickies
 
 Sticky notes that live on your macOS wallpaper. Type straight onto the desktop, add as many stickers as you like, set reminders, and ask Claude (AI) anything from any sticker. Everything saves itself automatically.
 
@@ -76,7 +76,7 @@ The first time you set a reminder, macOS asks for permission to show notificatio
 | Show someone's X posts | Menu bar icon → **Add X feed…** → type their username. Log in to X inside the panel once. |
 | Use an X feed panel | Click the panel to show its top bar and resize corner (they hide again when you click elsewhere). Drag the top bar to move it. Top bar: **‹** back, filter icon switches between **tweets only** (default) and the full page, **⟳** back to the profile and refresh, **×** removes the feed. Switch to the full page to log in. |
 | Find a lost sticker | Menu bar icon → **Line up all stickers** |
-| Open the saved file or quit | Menu bar icon → **Show saved file in Finder** / **Quit AI DesktopNote** |
+| Open the saved file or quit | Menu bar icon → **Show saved file in Finder** / **Quit AI Stickies** |
 
 ## Where your data lives
 

@@ -1,4 +1,4 @@
-// AI DesktopNote — sticky notes that live on your wallpaper.
+// AI Stickies — sticky notes that live on your wallpaper.
 // Everything is saved automatically to ~/Desktop/life/stickers.json
 
 import Cocoa
@@ -1707,7 +1707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "AI DesktopNote")
+        statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "AI Stickies")
         let menu = NSMenu()
         func add(_ title: String, _ sel: Selector) { menu.addItem(withTitle: title, action: sel, keyEquivalent: "").target = self }
         add("New sticker", #selector(newSticker))
@@ -1744,7 +1744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         add("Line up all stickers", #selector(lineUp))
         add("Show saved file in Finder", #selector(reveal))
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit AI DesktopNote", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Quit AI Stickies", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         statusItem.menu = menu
     }
 
@@ -1804,7 +1804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         toggleItem.title = board.hidden ? "Show all stickers" : "Hide all stickers"
         // Menu bar icon shows a crossed-out eye while stickers are hidden.
         statusItem.button?.image = NSImage(systemSymbolName: board.hidden ? "eye.slash" : "note.text",
-                                           accessibilityDescription: "AI DesktopNote")
+                                           accessibilityDescription: "AI Stickies")
     }
     @objc func lineUp() { if board.hidden { board.hidden = false }; board.bringAllBack() }
     @objc func reveal() { board.save(); NSWorkspace.shared.activateFileViewerSelecting([storeURL]) }
